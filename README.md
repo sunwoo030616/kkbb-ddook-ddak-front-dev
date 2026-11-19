@@ -24,6 +24,16 @@ npm run dev
 
 브라우저에는 API 키를 넣지 않습니다. 생성은 로컬 모델을 사용하고 실제 계좌 거래는 수행하지 않습니다.
 
+## 선택한 대출 조건 적용과 월 상환 예산
+
+비교 카드에서 ‘이 조건으로 적용 미리보기’를 누르면 현재 계산과 선택한 조건의 월 납입액·총이자 차이를 확인합니다. 확인 후 적용하면 대출 폼과 상환표가 함께 바뀌고, 취소하면 작성 중인 입력을 유지합니다. 기존 화면 이력으로 돌아갈 수 있습니다.
+
+월 예산을 저장하면 **마지막 회차 정산을 포함한 전체 상환표**에서 초과 회차 수·첫 초과·최대 초과액 또는 여유를 표시합니다. 원금이 다른 조건은 기존처럼 직접 순위를 비교하지 않습니다. 예산 저장과 적용 응답 유실도 새로고침 후 같은 요청으로 이어받습니다.
+
+[설계·입력 계약·검증 범위](https://github.com/sunwoo030616/KKBB-ddook-ddak-back-dev/blob/main/docs/대출조건_선택적용과_월예산.md) · [브라우저 결과](reports/loan-selection-budget/browser.json) · [적용 전후 비교 화면](reports/loan-selection-budget/mobile-apply-review.png) · [월 예산 비교 화면](reports/loan-selection-budget/mobile-budget-comparison.png)
+
+검증: 클라이언트 검사 **30개**, 전체 ESLint와 production build 통과. 새 백엔드 fixture와 기존 Vite 검증 프록시를 실행한 뒤 `node scripts/verify-loan-selection-budget.mjs`로 재현합니다. 예산 변경 충돌, 적용·취소·이력 복구, 저장·적용 응답 유실 후 새로고침을 포함하며 초기 화면 계획 모델만 고정한 기능 검사입니다.
+
 ## 새로고침과 작업 이어받기
 
 화면·최근 대화·미전송 채팅·폼 입력·미확정 변경안·진행 작업을 해당 탭의 `sessionStorage`에 임시 저장합니다. 새로고침하면 서버 상태를 확인하고 이어받습니다. 접수 응답을 받지 못했어도 원래 요청 ID로 작업을 조회하며 자동으로 생성을 다시 제출하지 않습니다. 연결 오류는 ‘작업 다시 연결’로 재시도하고, 화면이 만료됐다면 새 대화를 시작합니다.
@@ -36,7 +46,7 @@ npm run dev
 
 [설계·API·검증 범위](https://github.com/sunwoo030616/KKBB-ddook-ddak-back-dev/blob/main/docs/작업_이어받기와_대출조건_비교.md) · [작업 복구 브라우저 결과](reports/workspace-recovery/browser.json) · [대출 비교 결과](reports/loan-comparison/browser.json) · [비교 화면](reports/loan-comparison/mobile-comparison.png)
 
-클라이언트 검사 **26개**, 전체 ESLint와 production build를 통과했습니다. 두 브라우저 검사는 각각 새 fixture 프로세스에서 실행합니다. Chrome·Playwright가 필요하며 외부 설치 모듈은 `PLAYWRIGHT_MODULE` 경로로 지정할 수 있습니다.
+클라이언트 검사 **30개**, 전체 ESLint와 production build를 통과했습니다. 두 브라우저 검사는 각각 새 fixture 프로세스에서 실행합니다. Chrome·Playwright가 필요하며 외부 설치 모듈은 `PLAYWRIGHT_MODULE` 경로로 지정할 수 있습니다.
 
 ```bash
 # 백엔드 저장소: 생성 도중 새로고침을 재현하는 지연 포함 fixture
@@ -56,7 +66,7 @@ node scripts/verify-loan-comparison.mjs
 
 [복구 설계·한계](https://github.com/sunwoo030616/KKBB-ddook-ddak-back-dev/blob/main/docs/화면_이력과_복구.md) · [브라우저 검증 결과](reports/screen-history/browser.json) · [저장된 화면 UI](reports/screen-history/mobile-history.png)
 
-클라이언트 검사 26개, ESLint와 production build를 통과했습니다. 새 백엔드 fixture와 위의 Vite 검증 프록시를 실행한 상태에서 `node scripts/verify-screen-history.mjs`로 계산 저장·이력·복구·취소·이어서 수정하기를 재현할 수 있습니다. 모델만 고정한 기능 검사이며 실제 모델 정확도 시험이 아닙니다.
+클라이언트 검사 30개, ESLint와 production build를 통과했습니다. 새 백엔드 fixture와 위의 Vite 검증 프록시를 실행한 상태에서 `node scripts/verify-screen-history.mjs`로 계산 저장·이력·복구·취소·이어서 수정하기를 재현할 수 있습니다. 모델만 고정한 기능 검사이며 실제 모델 정확도 시험이 아닙니다.
 
 ## 화면 변경 브라우저 검사
 

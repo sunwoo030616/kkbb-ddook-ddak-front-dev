@@ -1,0 +1,33 @@
+{
+  "scope": "real React, Python API, SQLite and Decimal calculator; only initial screen planner is scripted",
+  "checks": [
+    "budget save acknowledgement lost and resumed exactly once",
+    "whole schedule budget assessment",
+    "selection preview uses saved inputs instead of unsaved drafts",
+    "cancel preserves drafts and original screen",
+    "confirm synchronizes form and exact saved repayment result",
+    "history restores earlier calculated conditions",
+    "lost apply acknowledgement yields one new revision",
+    "last payment rounding exceeds regular-payment budget by 3 won",
+    "concurrent budget change blocks stale confirmation",
+    "latest recovery refreshes budget",
+    "clear budget without changing screen",
+    "no additional model calls",
+    "mobile captures and no browser errors"
+  ],
+  "budget_rounding_boundary": {
+    "budget_won": "436478",
+    "peak_payment_won": "436481",
+    "within_budget": false,
+    "over_budget_months": 1,
+    "first_over_budget_month": 24,
+    "max_overrun_won": "3",
+    "headroom_won": "-3"
+  },
+  "state": {
+    "model_calls": 1,
+    "revisions": [
+      5
+    ]
+  }
+}

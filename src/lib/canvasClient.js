@@ -160,3 +160,6 @@ export function restoreScreen(screen, targetRevision) {
 export const loadLoanScenarios = session => screenRequest('/sessions/' + encodeURIComponent(session) + '/scenarios');
 export const saveLoanScenario = (session,body) => screenRequest('/sessions/' + encodeURIComponent(session) + '/scenarios',body);
 export const deleteLoanScenario = (session,id) => screenRequest('/sessions/' + encodeURIComponent(session) + '/scenarios/' + encodeURIComponent(id),null,'DELETE');
+
+export const setLoanBudget = (session,body) => screenRequest('/sessions/' + encodeURIComponent(session) + '/loan-budget',body);
+export const applyLoanScenario = (screen,id) => screenRequest('/sessions/' + encodeURIComponent(screen.session_id) + '/scenarios/' + encodeURIComponent(id) + '/apply',{expected_revision:screen.revision});

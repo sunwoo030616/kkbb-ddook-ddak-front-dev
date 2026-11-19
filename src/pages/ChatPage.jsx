@@ -1,17 +1,20 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useCanvasWorkspace } from '../lib/useCanvasWorkspace.js';
 import Chat from '../components/Chat.jsx';
 import ChatOrigin from '../components/common/ChatOrigin.jsx';
 import WidgetRenderer from '../components/WidgetRenderer.jsx';
 import ScreenHistory from '../components/ScreenHistory.jsx';
 import LoanComparison from '../components/LoanComparison.jsx';
+import LoanSelectionReview from '../components/LoanSelectionReview.jsx';
 import kkaebiFace from '../assets/logo/kkaebi-face.svg';
 import { supportsScreenReview } from '../lib/canvasClient.js';
 
 export default function ChatPage() {
   const [state,workspace]=useCanvasWorkspace();
-  const {screen,messages,isLoading,error,stage,inputValues,proposal,showPreview,needsRefresh,history,connectionLost,notice,storageFailed,draft,pending,comparison,comparisonOpen}=state;
+  const {screen,messages,isLoading,error,stage,inputValues,proposal,showPreview,needsRefresh,history,connectionLost,notice,storageFailed,draft,pending,comparison,comparisonOpen,budgetDraft}=state;
   const [isSheetOpen,setIsSheetOpen]=useState(false);
+  const reviewRef=useRef(null);
+  useEffect(()=>{if(proposal)reviewRef.current?.scrollIntoView({block:'start',behavior:'auto'});},[proposal]);
   const submit=workspace.submit,decide=workspace.decide,refresh=workspace.refresh,toggleHistory=workspace.toggleHistory,beginRestore=workspace.beginRestore;
   const displayed = showPreview && proposal ? proposal.screen : screen;
   const references = showPreview && proposal ? proposal.reference_data : screen?.reference_data;
@@ -33,10 +36,11 @@ export default function ChatPage() {
     {needsRefresh && screen && <button disabled={isLoading} onClick={refresh} className="rounded-button bg-white p-3 text-body-2 underline">최신 화면 불러오기 · 입력값 초기화</button>}
     {screen && supportsScreenReview() && <button disabled={busy} onClick={toggleHistory} aria-expanded={!!history} className="rounded-button bg-white p-3 text-body-2 underline disabled:opacity-50">{history ? '화면 이력 닫기' : '저장된 화면 보기'}</button>}
     {screen && supportsScreenReview() && (screen.widgets.some(widget=>widget.type==='loan_inputs_widget') || comparisonOpen) && <button disabled={busy} onClick={workspace.toggleComparison} aria-expanded={comparisonOpen} className="rounded-button bg-white p-3 text-body-2 underline disabled:opacity-50">{comparisonOpen?'대출 비교 닫기':'저장한 대출 조건 비교'}</button>}
-    {comparisonOpen && comparison && <LoanComparison comparison={comparison} onDelete={workspace.deleteScenario} busy={busy} />}
+    {comparisonOpen && comparison && <LoanComparison comparison={comparison} onDelete={workspace.deleteScenario} onApply={workspace.applyScenario} budgetDraft={budgetDraft} onBudgetDraft={workspace.budgetDraft} onBudgetSave={workspace.saveBudget} selectedId={screen?.loan_selection?.scenario_id} busy={busy} />}
     {history && <ScreenHistory history={history} onRestore={beginRestore} busy={busy} />}
-    {proposal && <section aria-label="화면 변경 확인" className="flex flex-col gap-3 rounded-card border border-yellow bg-white p-4">
+    {proposal && <section ref={reviewRef} aria-label="화면 변경 확인" className="scroll-mt-20 flex flex-col gap-3 rounded-card border border-yellow bg-white p-4">
       <h2 className="text-title">변경 내용을 확인해주세요</h2>
+      {proposal.screen.loan_selection && !proposal.screen.restored_from_revision && <LoanSelectionReview selection={proposal.screen.loan_selection} />}
       {proposal.screen.restored_from_revision && <p className="text-body-2 text-gray">저장된 화면과 입력 조건을 복구해요. 아직 적용하지 않은 입력은 초기화돼요.</p>}
       <p className="text-body-2 text-gray">아직 적용하지 않았어요. 내용을 확인한 뒤 선택해주세요.</p>
       {['added', 'removed', 'updated'].map(key => proposal.changes?.[key]?.length > 0 && <p key={key} className="text-body-2"><strong>{({ added: '추가', removed: '제거', updated: '수정' })[key]}</strong> · {proposal.changes[key].map(item => item.title).join(', ')}</p>)}
@@ -48,7 +52,7 @@ export default function ChatPage() {
     {showPreview && proposal && <p role="status" className="text-body-2 text-gray">변경 후 미리보기 · 적용 전에는 입력할 수 없어요.</p>}
     <section aria-label="맞춤 금융 화면" className="flex flex-col gap-3">
       {(displayed?.widgets || []).map(widget => <WidgetRenderer key={widget.id || widget.type} widget={widget}
-        values={showPreview && proposal?.screen.restored_from_revision ? {} : inputValues[widget.id] || {}}
+        values={showPreview && (proposal?.screen.restored_from_revision || (proposal?.screen.loan_selection && widget.type==='loan_inputs_widget')) ? {} : inputValues[widget.id] || {}}
         onValuesChange={values => workspace.values(widget.id,values)}
         onSubmit={submit} busy={busy} scenarioCount={comparison?.items.length || 0} onSaveScenario={supportsScreenReview()?workspace.saveScenario:undefined} referenceData={references?.[widget.id]} onSheetOpenChanged={setIsSheetOpen} />)}
     </section>

@@ -1,11 +1,11 @@
 import { acceptScreen, acceptRefreshedScreen, createComposition, runComposition, validateProposal,
-  retainInputValues, supportsScreenReview, decideProposal, loadCurrentScreen, loadScreenHistory, restoreScreen, loadLoanScenarios, saveLoanScenario, deleteLoanScenario } from './canvasClient.js';
+  retainInputValues, supportsScreenReview, decideProposal, loadCurrentScreen, loadScreenHistory, restoreScreen, loadLoanScenarios, saveLoanScenario, deleteLoanScenario, setLoanBudget, applyLoanScenario } from './canvasClient.js';
 import { readSession, writeSession, clearSession, emptySession } from './canvasSession.js';
 
 export class CanvasWorkspace {
   constructor({ storage, api = {}, now = Date.now } = {}) {
     this.storage=storage;this.now=now;
-    this.api={runComposition,decideProposal,loadCurrentScreen,loadScreenHistory,restoreScreen,loadLoanScenarios,saveLoanScenario,deleteLoanScenario,...api};
+    this.api={runComposition,decideProposal,loadCurrentScreen,loadScreenHistory,restoreScreen,loadLoanScenarios,saveLoanScenario,deleteLoanScenario,setLoanBudget,applyLoanScenario,...api};
     const saved=readSession(storage,now());
     this.state={...emptySession(),...saved,isLoading:!!saved,stage:'context',error:'',notice:'',needsRefresh:false,
       history:null,comparison:null,showPreview:false,connectionLost:false,storageFailed:false};
@@ -15,8 +15,8 @@ export class CanvasWorkspace {
   snapshot = () => this.state;
   update = patch => {
     this.state={...this.state,...patch};
-    const {screen,messages,inputValues,proposal,pending,draft,comparisonOpen}=this.state;
-    const ok=writeSession({screen,messages,inputValues,proposal,pending,draft,comparisonOpen},this.storage,this.now());
+    const {screen,messages,inputValues,proposal,pending,draft,comparisonOpen,budgetDraft,budgetDirty}=this.state;
+    const ok=writeSession({screen,messages,inputValues,proposal,pending,draft,comparisonOpen,budgetDraft,budgetDirty},this.storage,this.now());
     this.state={...this.state,storageFailed:!ok};
     this.listeners.forEach(listener=>listener());
   };
@@ -28,9 +28,9 @@ export class CanvasWorkspace {
   message = text => ({id:crypto.randomUUID(),role:'assistant',text});
   applyResult = (result,ticket) => {
     const s=this.state;
-    if(['scenarioSave','scenarioDelete'].includes(ticket.kind)) {
+    if(['scenarioSave','scenarioDelete','budgetSave'].includes(ticket.kind)) {
       if(!Array.isArray(result.items))throw new Error('저장된 비교 조건을 확인하지 못했어요.');
-      this.update({pending:null,comparison:result,comparisonOpen:true});return;
+      this.update({pending:null,comparison:result,comparisonOpen:true,...(ticket.kind==='budgetSave'?{budgetDraft:result.budget_won ?? '',budgetDirty:false}:this.budgetFields(result))});return;
     }
     if(ticket.kind==='decision' && ticket.decision==='cancel') {
       if(result.status!=='cancelled')throw new Error('취소 결과를 확인하지 못했어요.');
@@ -42,9 +42,12 @@ export class CanvasWorkspace {
     if(result.status==='composed') {
       const screen=acceptScreen(s.screen,result);
       const restoring=ticket.kind==='decision' && ticket.proposal.screen.restored_from_revision;
+      const selection=ticket.kind==='decision' && !restoring && ticket.proposal.screen.loan_selection;
+      const inputs=retainInputValues(s.inputValues,screen);
+      if(selection)inputs.loan_inputs_widget={...selection.input,scenario_label:selection.label};
       this.update({screen,pending:null,proposal:null,history:null,showPreview:false,
-        inputValues:restoring?{}:retainInputValues(s.inputValues,screen),
-        messages:[...s.messages,this.message(restoring?'저장된 화면과 입력 조건을 복구했어요. 이어서 수정할 수 있어요.':ticket.kind==='decision'?'확인한 변경 내용을 반영했어요.':result.greeting || '금융 화면을 준비했어요.')]});return;
+        inputValues:restoring?{}:inputs,
+        messages:[...s.messages,this.message(restoring?'저장된 화면과 입력 조건을 복구했어요. 이어서 수정할 수 있어요.':selection?'선택한 대출 조건을 입력과 상환표에 반영했어요.':ticket.kind==='decision'?'확인한 변경 내용을 반영했어요.':result.greeting || '금융 화면을 준비했어요.')]});return;
     }
     if(ticket.kind==='decision')throw new Error('적용 결과를 확인하지 못했어요.');
     this.update({pending:null,messages:[...s.messages,this.message(result.greeting || '필요한 금융 조건을 알려주세요.')]});
@@ -75,6 +78,8 @@ export class CanvasWorkspace {
           :ticket.kind==='decision'?await this.api.decideProposal(ticket.proposal,ticket.decision)
           :ticket.kind==='scenarioSave'?await this.api.saveLoanScenario(ticket.session,ticket.body)
           :ticket.kind==='scenarioDelete'?await this.api.deleteLoanScenario(ticket.session,ticket.id)
+          :ticket.kind==='budgetSave'?await this.api.setLoanBudget(ticket.session,ticket.body)
+          :ticket.kind==='scenarioApply'?await this.api.applyLoanScenario(ticket.screen,ticket.id)
           :await this.api.restoreScreen(ticket.screen,ticket.target);
         if(epoch!==this.epoch)return false;
         this.applyResult(result,ticket);
@@ -84,12 +89,18 @@ export class CanvasWorkspace {
         this.reconcileResult(latest);
         if(this.state.comparisonOpen && this.state.screen) {
           const comparison=await this.api.loadLoanScenarios(this.state.screen.session_id);
-          if(epoch!==this.epoch)return false;this.update({comparison});
+          if(epoch!==this.epoch)return false;this.update({comparison,...this.budgetFields(comparison)});
         }
       }
       return true;
     } catch(error) {
       if(epoch!==this.epoch)return false;
+      if(ticket?.kind==='budgetSave' && error.status===409) {
+        this.update({pending:null,error:'다른 요청에서 예산이 바뀌었어요. 최신 예산을 확인한 뒤 다시 저장해주세요.'});
+        try {const comparison=await this.api.loadLoanScenarios(ticket.session);if(epoch===this.epoch)this.update({comparison});}
+        catch {if(epoch===this.epoch)this.update({connectionLost:true});}
+        return false;
+      }
       const expired=[404,410].includes(error.status);
       this.update({error:error instanceof TypeError || ['AbortError','TimeoutError'].includes(error.name) ? '연결이 끊겼어요. 작업 다시 연결을 눌러주세요.' : error.message || '작업을 연결하지 못했어요.',
         pending:error.terminal?null:this.state.pending,
@@ -116,7 +127,11 @@ export class CanvasWorkspace {
     const epoch=++this.epoch;this.update({isLoading:true,error:'',stage:'context'});
     try {
       const latest=await this.reconcile();if(epoch!==this.epoch)return;
-      this.update({screen:latest || this.state.screen,inputValues:{},pending:null,proposal:null,history:null,needsRefresh:false,connectionLost:false});
+      let comparison=this.state.comparison;
+      if(this.state.comparisonOpen && latest)comparison=await this.api.loadLoanScenarios(latest.session_id);
+      if(epoch!==this.epoch)return;
+      this.update({screen:latest || this.state.screen,inputValues:{},pending:null,proposal:null,history:null,needsRefresh:false,connectionLost:false,
+        ...(comparison?{comparison,...this.budgetFields(comparison)}:{})});
     } catch(error) { if(epoch===this.epoch)this.update({error:error.message}); }
     finally {if(epoch===this.epoch)this.update({isLoading:false});}
   };
@@ -139,7 +154,7 @@ export class CanvasWorkspace {
     const epoch=++this.epoch;this.update({isLoading:true,error:'',stage:'context'});
     try {
       const comparison=await this.api.loadLoanScenarios(this.state.screen.session_id);
-      if(epoch===this.epoch)this.update({comparison,comparisonOpen:true});
+      if(epoch===this.epoch)this.update({comparison,comparisonOpen:true,...this.budgetFields(comparison)});
     } catch(error){if(epoch===this.epoch)this.update({error:error.message});}
     finally{if(epoch===this.epoch)this.update({isLoading:false});}
   };
@@ -152,6 +167,20 @@ export class CanvasWorkspace {
   deleteScenario = id => {
     if(this.locked())return;
     const ticket={kind:'scenarioDelete',session:this.state.screen.session_id,id,created_at:this.now()};
+    this.update({pending:ticket});return this.perform(ticket);
+  };
+  budgetFields = comparison => this.state.budgetDirty?{}:{budgetDraft:comparison.budget_won ?? '',budgetDirty:false};
+  budgetDraft = value => this.update({budgetDraft:value,budgetDirty:true});
+  saveBudget = (clear=false) => {
+    if(this.locked() || !this.state.comparison)return;
+    const ticket={kind:'budgetSave',session:this.state.screen.session_id,created_at:this.now(),
+      body:{client_request_id:crypto.randomUUID(),budget_won:clear?null:this.state.budgetDraft.trim() || null,
+        expected_budget_revision:this.state.comparison.budget_revision}};
+    this.update({pending:ticket});return this.perform(ticket);
+  };
+  applyScenario = id => {
+    if(this.locked())return;
+    const ticket={kind:'scenarioApply',screen:{session_id:this.state.screen.session_id,revision:this.state.screen.revision},id,created_at:this.now()};
     this.update({pending:ticket});return this.perform(ticket);
   };
   preview = () => this.update({showPreview:!this.state.showPreview});

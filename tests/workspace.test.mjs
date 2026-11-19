@@ -118,3 +118,33 @@ test('expired job exposes latest-screen recovery instead of silently creating a 
   await workspace.recover();assert.equal(workspace.state.screen.revision,1);assert.equal(workspace.state.pending,null);assert.equal(workspace.state.needsRefresh,true);
   await workspace.refresh();assert.equal(workspace.state.screen.revision,2);assert.equal(workspace.state.needsRefresh,false);
 });
+
+test('selected condition preview preserves drafts until confirmation, then synchronizes loan form only',async()=>{
+  const s=storage();const p=proposal();p.screen.loan_selection={scenario_id:'saved',label:'24개월',input:{principal_won:'10000000',annual_rate_percent:'4.5',months:24}};
+  const workspace=new CanvasWorkspace({storage:s,api:{applyLoanScenario:async()=>p,decideProposal:async()=>({...p.screen,status:'composed',widgets:[{id:'loan_inputs_widget',type:'loan_inputs_widget'},{id:'funding_inputs_widget',type:'funding_inputs_widget'}]})}});
+  workspace.update({screen:screen(),inputValues:{loan_inputs_widget:{principal_won:'999'},funding_inputs_widget:{loan_days:30}}});
+  await workspace.applyScenario('saved');assert.equal(workspace.state.screen.revision,1);assert.equal(workspace.state.inputValues.loan_inputs_widget.principal_won,'999');
+  await workspace.decide('commit');assert.equal(workspace.state.screen.revision,2);
+  assert.equal(workspace.state.inputValues.loan_inputs_widget.months,24);assert.equal(workspace.state.inputValues.loan_inputs_widget.scenario_label,'24개월');
+  assert.equal(workspace.state.inputValues.funding_inputs_widget.loan_days,30);
+});
+
+test('budget save is checkpointed and lost acknowledgement reuses the original request',async()=>{
+  const s=storage();const ticket={kind:'budgetSave',session:screen().session_id,body:{client_request_id:'budget-key',budget_won:'500000',expected_budget_revision:0}};
+  writeSession({...emptySession(),screen:screen(),pending:ticket,budgetDraft:'500000',budgetDirty:true},s);
+  const comparison={items:[],budget_won:'500000',budget_revision:1};let calls=0;
+  const workspace=new CanvasWorkspace({storage:s,api:{setLoanBudget:async(session,body)=>{calls++;assert.equal(body.client_request_id,'budget-key');return comparison;},loadCurrentScreen:async()=>screen(),loadLoanScenarios:async()=>comparison}});
+  await workspace.recover();assert.equal(calls,1);assert.equal(workspace.state.pending,null);assert.equal(workspace.state.budgetDirty,false);assert.equal(workspace.state.comparison.budget_revision,1);
+});
+
+test('concurrent budget conflict refreshes budget revision without overwriting the draft or locking canvas recovery',async()=>{
+  const workspace=new CanvasWorkspace({storage:storage(),api:{setLoanBudget:async()=>{throw Object.assign(new Error('conflict'),{status:409,terminal:true});},loadLoanScenarios:async()=>({items:[],budget_won:'700000',budget_revision:2})}});
+  workspace.update({screen:screen(),comparison:{items:[],budget_revision:1},budgetDraft:'600000',budgetDirty:true});
+  await workspace.saveBudget();assert.equal(workspace.state.comparison.budget_revision,2);assert.equal(workspace.state.budgetDraft,'600000');assert.equal(workspace.state.pending,null);assert.equal(workspace.state.needsRefresh,false);
+});
+
+test('unsaved budget draft survives reload while server budget remains authoritative',async()=>{
+  const s=storage();writeSession({...emptySession(),screen:screen(),comparisonOpen:true,budgetDraft:'123456',budgetDirty:true},s);
+  const workspace=new CanvasWorkspace({storage:s,api:{loadCurrentScreen:async()=>screen(),loadLoanScenarios:async()=>({items:[],budget_won:'500000',budget_revision:1})}});
+  await workspace.recover();assert.equal(workspace.state.budgetDraft,'123456');assert.equal(workspace.state.comparison.budget_won,'500000');
+});

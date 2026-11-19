@@ -1,7 +1,7 @@
 // Per-tab, short-lived recovery. Financial drafts never enter persistent localStorage.
 export const SESSION_TTL = 30 * 60 * 1000;
 export const SESSION_KEY = 'kkbb.workspace.v1';
-export const emptySession = () => ({ screen:null, messages:[], inputValues:{}, proposal:null, pending:null, draft:'', comparisonOpen:false });
+export const emptySession = () => ({ screen:null, messages:[], inputValues:{}, proposal:null, pending:null, draft:'', comparisonOpen:false, budgetDraft:'', budgetDirty:false });
 const endpoint = () => import.meta.env?.VITE_CHAT_API_URL || '/api/canvas/v2';
 export function readSession(storage, now = Date.now()) {
   try {
