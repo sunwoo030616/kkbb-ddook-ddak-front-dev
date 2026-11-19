@@ -1,0 +1,24 @@
+{
+  "scope": "real React and Python API, deterministic model fixture; no model quality claim",
+  "checks": [
+    "calculation creates history",
+    "clear preserves earlier calculated screen",
+    "history list shows recoverable states",
+    "recovery preview does not persist",
+    "preview shows saved inputs",
+    "cancel recovery keeps current empty screen",
+    "confirm restores exact inputs and calculated widgets as a new revision",
+    "recovery uses zero model calls",
+    "cancel another recovery preserves unsaved drafts",
+    "continue conversational editing after recovery",
+    "redo of an empty screen works",
+    "mobile and desktop capture",
+    "no browser errors"
+  ],
+  "state": {
+    "model_calls": 2,
+    "revisions": [
+      5
+    ]
+  }
+}

@@ -24,6 +24,14 @@ npm run dev
 
 브라우저에는 API 키를 넣지 않습니다. 생성은 로컬 모델을 사용하고 실제 계좌 거래는 수행하지 않습니다.
 
+## 저장된 화면 복구
+
+`저장된 화면 보기`에서 이전 화면의 기능·입력 조건·계산 결과를 미리 확인하고 복구합니다. 복구는 새 화면으로 저장하므로 이전 기록이 남고, 취소하면 현재 입력을 유지합니다. 복구 적용 시에는 현재의 미적용 입력을 초기화한다고 안내합니다. 마지막 저장 후 30분 동안 최근 최대 10개를 보관하며 서버 전체 한도로 더 일찍 제거될 수 있습니다. 금융 자료·기능 버전이 달라진 화면은 복구할 수 없습니다.
+
+[복구 설계·한계](https://github.com/sunwoo030616/KKBB-ddook-ddak-back-dev/blob/main/docs/화면_이력과_복구.md) · [브라우저 검증 결과](reports/screen-history/browser.json) · [저장된 화면 UI](reports/screen-history/mobile-history.png)
+
+클라이언트 검사 14개, ESLint와 production build를 통과했습니다. 새 백엔드 fixture와 위의 Vite 검증 프록시를 실행한 상태에서 `node scripts/verify-screen-history.mjs`로 계산 저장·이력·복구·취소·이어서 수정하기를 재현할 수 있습니다. 모델만 고정한 기능 검사이며 실제 모델 정확도 시험이 아닙니다.
+
 ## 화면 변경 브라우저 검사
 
 `npm test` 13개, `npm run lint`, `npm run build`를 통과했습니다. [브라우저 검사 결과](reports/screen-review/browser.json)와 [모바일 변경 확인 화면](reports/screen-review/mobile-review.png)을 함께 저장했습니다.

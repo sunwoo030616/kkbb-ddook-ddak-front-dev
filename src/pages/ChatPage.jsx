@@ -2,8 +2,9 @@ import { useRef, useState } from 'react';
 import Chat from '../components/Chat.jsx';
 import ChatOrigin from '../components/common/ChatOrigin.jsx';
 import WidgetRenderer from '../components/WidgetRenderer.jsx';
+import ScreenHistory from '../components/ScreenHistory.jsx';
 import kkaebiFace from '../assets/logo/kkaebi-face.svg';
-import { acceptScreen, composeScreen, retainInputValues, validateProposal, supportsScreenReview, decideProposal, loadCurrentScreen, acceptRefreshedScreen } from '../lib/canvasClient.js';
+import { acceptScreen, composeScreen, retainInputValues, validateProposal, supportsScreenReview, decideProposal, loadCurrentScreen, acceptRefreshedScreen, loadScreenHistory, restoreScreen } from '../lib/canvasClient.js';
 
 export default function ChatPage() {
   const [screen, setScreen] = useState(null);
@@ -17,10 +18,11 @@ export default function ChatPage() {
   const [proposal, setProposal] = useState(null);
   const [showPreview, setShowPreview] = useState(false);
   const [needsRefresh, setNeedsRefresh] = useState(false);
+  const [history, setHistory] = useState(null);
 
   const submit = async (message, calculation) => {
     if (sending.current || proposal || needsRefresh) return false;
-    sending.current = true; setLoading(true); setError('');
+    sending.current = true; setLoading(true); setError(''); setHistory(null);
     setMessages(previous => [...previous, { id: crypto.randomUUID(), role: 'user', text: message }]);
     try {
       const operation = screen && !calculation && supportsScreenReview() ? 'preview' : 'compose';
@@ -48,10 +50,11 @@ export default function ChatPage() {
       if (decision === 'commit') {
         const accepted = acceptScreen(screen, result);
         if (result.status !== 'composed') throw new Error('적용한 화면을 확인하지 못했어요. 다시 시도해주세요.');
-        setScreen(accepted); setInputValues(previous => retainInputValues(previous, accepted));
+        setScreen(accepted); setHistory(null);
+        setInputValues(previous => proposal.screen.restored_from_revision ? {} : retainInputValues(previous, accepted));
       } else if (result.status !== 'cancelled') throw new Error('취소 결과를 확인하지 못했어요. 다시 시도해주세요.');
       setProposal(null); setShowPreview(false);
-      setMessages(previous => [...previous, { id: crypto.randomUUID(), role: 'assistant', text: decision === 'commit' ? '확인한 변경 내용을 반영했어요.' : '기존 화면과 입력한 값을 그대로 유지했어요.' }]);
+      setMessages(previous => [...previous, { id: crypto.randomUUID(), role: 'assistant', text: decision === 'commit' ? (proposal.screen.restored_from_revision ? '저장된 화면과 입력 조건을 복구했어요. 이어서 수정할 수 있어요.' : '확인한 변경 내용을 반영했어요.') : '기존 화면과 입력한 값을 그대로 유지했어요.' }]);
     } catch (failure) { setError(failure.message); setNeedsRefresh([409, 410].includes(failure.status)); }
     finally { sending.current = false; setLoading(false); }
   };
@@ -60,8 +63,25 @@ export default function ChatPage() {
     sending.current = true; setLoading(true); setStage('context');
     try {
       const latest = acceptRefreshedScreen(screen, await loadCurrentScreen(screen.session_id));
-      setScreen(latest); setInputValues({}); setProposal(null); setShowPreview(false); setNeedsRefresh(false); setError('');
+      setScreen(latest); setHistory(null); setInputValues({}); setProposal(null); setShowPreview(false); setNeedsRefresh(false); setError('');
     } catch (failure) { setError(failure.message); }
+    finally { sending.current = false; setLoading(false); }
+  };
+  const toggleHistory = async () => {
+    if (sending.current || proposal || needsRefresh) return;
+    if (history) { setHistory(null); return; }
+    sending.current = true; setLoading(true); setError(''); setStage('context');
+    try { setHistory(await loadScreenHistory(screen.session_id)); }
+    catch (failure) { setError(failure.message); setNeedsRefresh([409, 410].includes(failure.status)); }
+    finally { sending.current = false; setLoading(false); }
+  };
+  const beginRestore = async target => {
+    if (sending.current || proposal || needsRefresh) return;
+    sending.current = true; setLoading(true); setError(''); setStage('context');
+    try {
+      const result = validateProposal(screen, await restoreScreen(screen, target));
+      setProposal(result); setShowPreview(false); setHistory(null);
+    } catch (failure) { setError(failure.message); setNeedsRefresh([409, 410].includes(failure.status)); }
     finally { sending.current = false; setLoading(false); }
   };
   const displayed = showPreview && proposal ? proposal.screen : screen;
@@ -79,8 +99,11 @@ export default function ChatPage() {
     </section>
     {error && <p role="alert" className="rounded-card bg-white p-4 text-body-2 text-red-700">{error}</p>}
     {needsRefresh && screen && <button disabled={isLoading} onClick={refresh} className="rounded-button bg-white p-3 text-body-2 underline">최신 화면 불러오기 · 입력값 초기화</button>}
+    {screen && supportsScreenReview() && <button disabled={busy} onClick={toggleHistory} aria-expanded={!!history} className="rounded-button bg-white p-3 text-body-2 underline disabled:opacity-50">{history ? '화면 이력 닫기' : '저장된 화면 보기'}</button>}
+    {history && <ScreenHistory history={history} onRestore={beginRestore} busy={busy} />}
     {proposal && <section aria-label="화면 변경 확인" className="flex flex-col gap-3 rounded-card border border-yellow bg-white p-4">
       <h2 className="text-title">변경 내용을 확인해주세요</h2>
+      {proposal.screen.restored_from_revision && <p className="text-body-2 text-gray">저장된 화면과 입력 조건을 복구해요. 아직 적용하지 않은 입력은 초기화돼요.</p>}
       <p className="text-body-2 text-gray">아직 적용하지 않았어요. 내용을 확인한 뒤 선택해주세요.</p>
       {['added', 'removed', 'updated'].map(key => proposal.changes?.[key]?.length > 0 && <p key={key} className="text-body-2"><strong>{({ added: '추가', removed: '제거', updated: '수정' })[key]}</strong> · {proposal.changes[key].map(item => item.title).join(', ')}</p>)}
       {!!proposal.changes?.context_changed?.length && <p className="text-body-2 text-gray">요청에 맞게 금융 조건도 변경돼요. 미리보기에서 확인해주세요.</p>}
@@ -91,13 +114,13 @@ export default function ChatPage() {
     {showPreview && proposal && <p role="status" className="text-body-2 text-gray">변경 후 미리보기 · 적용 전에는 입력할 수 없어요.</p>}
     <section aria-label="맞춤 금융 화면" className="flex flex-col gap-3">
       {(displayed?.widgets || []).map(widget => <WidgetRenderer key={widget.id || widget.type} widget={widget}
-        values={inputValues[widget.id] || {}}
+        values={showPreview && proposal?.screen.restored_from_revision ? {} : inputValues[widget.id] || {}}
         onValuesChange={values => setInputValues(previous => ({ ...previous, [widget.id]: values }))}
         onSubmit={submit} busy={busy} referenceData={references?.[widget.id]} onSheetOpenChanged={setIsSheetOpen} />)}
     </section>
     <div className={`fixed inset-x-0 bottom-0 z-50 mx-auto w-full max-w-[375px] bg-background/90 px-[10px] pb-[12px] pt-2 ${isSheetOpen ? 'hidden' : ''}`}>
       <Chat onSubmit={submit} isLoading={busy} disabledMessage={needsRefresh ? '최신 화면을 불러오거나 새 대화를 시작해주세요.' : proposal ? '변경안을 적용하거나 기존 화면을 유지해주세요.' : undefined} />
-      {screen && <button disabled={isLoading || (!!proposal && !needsRefresh)} onClick={() => { setProposal(null); setShowPreview(false); setNeedsRefresh(false); setScreen(null); setMessages([]); setError(''); setInputValues({}); }} className="mt-2 w-full text-center text-caption-1 text-gray">새 대화 시작</button>}
+      {screen && <button disabled={isLoading || (!!proposal && !needsRefresh)} onClick={() => { setProposal(null); setShowPreview(false); setNeedsRefresh(false); setScreen(null); setHistory(null); setMessages([]); setError(''); setInputValues({}); }} className="mt-2 w-full text-center text-caption-1 text-gray">새 대화 시작</button>}
     </div>
   </div>;
 }

@@ -134,3 +134,10 @@ export function acceptRefreshedScreen(previous, incoming) {
       || incoming.revision < previous.revision) throw new Error('최신 화면을 확인하지 못했어요.');
   return acceptScreen(null, incoming);
 }
+
+export const loadScreenHistory = session => screenRequest('/sessions/' + encodeURIComponent(session) + '/history');
+export function restoreScreen(screen, targetRevision) {
+  if (!Number.isInteger(targetRevision) || targetRevision < 1) throw new Error('복구할 화면을 선택해주세요.');
+  return screenRequest('/sessions/' + encodeURIComponent(screen.session_id) + '/restore',
+    { target_revision: targetRevision, expected_revision: screen.revision });
+}

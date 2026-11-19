@@ -131,3 +131,21 @@ test('explicit refresh accepts the current revision but rejects older or foreign
   assert.throws(()=>acceptRefreshedScreen(old,{...old,revision:1}));
   assert.throws(()=>acceptRefreshedScreen(old,{...old,session_id:'two'}));
 });
+
+test('history and recovery refer only to the saved session and revisions',async()=>{
+  const {loadScreenHistory,restoreScreen}=await import('../src/lib/canvasClient.js');
+  const original=globalThis.fetch;const calls=[];
+  try {
+    globalThis.fetch=async(url,options)=>{
+      calls.push({url,options});
+      return {ok:true,json:async()=>({status:'pending'})};
+    };
+    await loadScreenHistory('one');
+    await restoreScreen({session_id:'one',revision:5,widgets:[{data:'never upload'}]},2);
+    assert.equal(calls[0].url,'/api/canvas/v2/sessions/one/history');
+    assert.equal(calls[1].url,'/api/canvas/v2/sessions/one/restore');
+    assert.deepEqual(JSON.parse(calls[1].options.body),{target_revision:2,expected_revision:5});
+    for(const invalid of [0,-1,1.5,'2'])assert.throws(()=>restoreScreen({session_id:'one',revision:5},invalid));
+    assert.equal(calls.length,2);
+  }finally{globalThis.fetch=original;}
+});
