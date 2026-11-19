@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { Icon } from '@iconify/react';
 
-export default function Chat({ onSubmit, isLoading = false, disabledMessage }) {
-  const [message, setMessage] = useState('');
+export default function Chat({ onSubmit, isLoading = false, disabledMessage, draft, onDraftChange }) {
+  const [localMessage, setLocalMessage] = useState('');
+  const message=draft ?? localMessage;
+  const setMessage=onDraftChange || setLocalMessage;
   const send = async () => {
     if (!message.trim() || isLoading) return;
     const sent = message.trim();

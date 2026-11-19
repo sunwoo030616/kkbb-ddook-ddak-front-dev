@@ -24,13 +24,39 @@ npm run dev
 
 브라우저에는 API 키를 넣지 않습니다. 생성은 로컬 모델을 사용하고 실제 계좌 거래는 수행하지 않습니다.
 
+## 새로고침과 작업 이어받기
+
+화면·최근 대화·미전송 채팅·폼 입력·미확정 변경안·진행 작업을 해당 탭의 `sessionStorage`에 임시 저장합니다. 새로고침하면 서버 상태를 확인하고 이어받습니다. 접수 응답을 받지 못했어도 원래 요청 ID로 작업을 조회하며 자동으로 생성을 다시 제출하지 않습니다. 연결 오류는 ‘작업 다시 연결’로 재시도하고, 화면이 만료됐다면 새 대화를 시작합니다.
+
+임시 기록은 마지막 갱신 후 30분간 유효하며 대화와 금융 입력을 포함합니다. 영구 저장소인 `localStorage`는 사용하지 않습니다. 저장소가 차단된 환경에는 복구 제한을 표시합니다.
+
+## 대출 조건 비교
+
+대출 상환 입력 폼에서 조건 이름과 함께 ‘이 조건을 비교에 저장’을 누릅니다. 최대 4개의 월 납입액·총이자·총 납입액과 첫 조건 대비 차이를 확인합니다. 원금이 다른 조건의 순위는 숨기며 고정금리·원리금균등 월납 등 계산 가정을 표시합니다. 비교 조건 저장·삭제도 새로고침 후 같은 요청으로 이어받습니다.
+
+[설계·API·검증 범위](https://github.com/sunwoo030616/KKBB-ddook-ddak-back-dev/blob/main/docs/작업_이어받기와_대출조건_비교.md) · [작업 복구 브라우저 결과](reports/workspace-recovery/browser.json) · [대출 비교 결과](reports/loan-comparison/browser.json) · [비교 화면](reports/loan-comparison/mobile-comparison.png)
+
+클라이언트 검사 **26개**, 전체 ESLint와 production build를 통과했습니다. 두 브라우저 검사는 각각 새 fixture 프로세스에서 실행합니다. Chrome·Playwright가 필요하며 외부 설치 모듈은 `PLAYWRIGHT_MODULE` 경로로 지정할 수 있습니다.
+
+```bash
+# 백엔드 저장소: 생성 도중 새로고침을 재현하는 지연 포함 fixture
+REVIEW_FIXTURE_DELAY=2 python -m scripts.screen_review_fixture
+# 이 프론트 저장소, 별도 터미널
+VITE_DEV_COMPOSER_URL=http://127.0.0.1:8877 npm run dev
+node scripts/verify-workspace-recovery.mjs
+# 백엔드 fixture를 종료 후 새로 실행하고 비교 검증
+node scripts/verify-loan-comparison.mjs
+```
+
+브라우저 검사는 실제 API·SQLite·Decimal 계산기를 사용하며 초기 화면 계획 모델만 고정합니다. 모델 정확도나 운영 성능을 측정한 결과는 아닙니다. 기본 실행은 기존 Spring 프록시를 사용합니다.
+
 ## 저장된 화면 복구
 
 `저장된 화면 보기`에서 이전 화면의 기능·입력 조건·계산 결과를 미리 확인하고 복구합니다. 복구는 새 화면으로 저장하므로 이전 기록이 남고, 취소하면 현재 입력을 유지합니다. 복구 적용 시에는 현재의 미적용 입력을 초기화한다고 안내합니다. 마지막 저장 후 30분 동안 최근 최대 10개를 보관하며 서버 전체 한도로 더 일찍 제거될 수 있습니다. 금융 자료·기능 버전이 달라진 화면은 복구할 수 없습니다.
 
 [복구 설계·한계](https://github.com/sunwoo030616/KKBB-ddook-ddak-back-dev/blob/main/docs/화면_이력과_복구.md) · [브라우저 검증 결과](reports/screen-history/browser.json) · [저장된 화면 UI](reports/screen-history/mobile-history.png)
 
-클라이언트 검사 14개, ESLint와 production build를 통과했습니다. 새 백엔드 fixture와 위의 Vite 검증 프록시를 실행한 상태에서 `node scripts/verify-screen-history.mjs`로 계산 저장·이력·복구·취소·이어서 수정하기를 재현할 수 있습니다. 모델만 고정한 기능 검사이며 실제 모델 정확도 시험이 아닙니다.
+클라이언트 검사 26개, ESLint와 production build를 통과했습니다. 새 백엔드 fixture와 위의 Vite 검증 프록시를 실행한 상태에서 `node scripts/verify-screen-history.mjs`로 계산 저장·이력·복구·취소·이어서 수정하기를 재현할 수 있습니다. 모델만 고정한 기능 검사이며 실제 모델 정확도 시험이 아닙니다.
 
 ## 화면 변경 브라우저 검사
 

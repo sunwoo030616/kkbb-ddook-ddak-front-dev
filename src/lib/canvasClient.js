@@ -45,52 +45,67 @@ export async function composeLegacy(base, message, previous, signal) {
 }
 
 
-export async function composeScreen(message, screen, calculation, onProgress = () => {}, operation = 'compose') {
-  const base = (import.meta.env?.VITE_CHAT_API_URL || '/api/canvas/v2').replace(/\/$/, '');
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 180000);
-  const signal = controller.signal;
-  const body = JSON.stringify({ request: requestBody(message, screen, calculation), client_request_id: crypto.randomUUID(), ...(operation === 'preview' ? { operation } : {}) });
-  async function read(response) {
-    const value = await response.json();
-    if (!response.ok) {
-      if ([409, 410].includes(response.status)) throw Object.assign(new Error('화면이 변경되었거나 만료됐어요. 최신 화면을 불러와주세요.'), { status: response.status });
-      throw new Error(typeof value.detail === 'string' ? value.detail : value.error || '화면 구성을 연결하지 못했어요. 기존 화면을 유지할게요.');
-    }
-    return value;
+export function createComposition(message, screen, calculation, operation = 'compose') {
+  return { kind: 'compose', created_at: Date.now(), message,
+    body: { request: requestBody(message, screen, calculation), client_request_id: crypto.randomUUID(),
+      ...(operation === 'preview' ? { operation } : {}) } };
+}
+
+async function readJob(response) {
+  const value = await response.json();
+  if (!response.ok) throw Object.assign(new Error([404, 409, 410].includes(response.status)
+    ? '작업이 변경되었거나 보관 기간이 지났어요. 현재 화면을 확인해주세요.'
+    : typeof value.detail === 'string' ? value.detail : value.error || '연결이 끊겼어요. 작업 다시 연결을 눌러주세요.'),
+    { status: response.status, terminal: response.status < 500 });
+  return value;
+}
+
+export async function runComposition(ticket, { resume = false, signal, onProgress = () => {}, onJob = () => {} } = {}) {
+  signal = signal ? AbortSignal.any([signal, AbortSignal.timeout(180000)]) : AbortSignal.timeout(180000);
+  const base = apiBase();
+  if (isLegacyEndpoint(base)) {
+    if (resume || ticket.body.operation === 'preview') throw Object.assign(new Error('이 연결에서는 작업 이어받기를 지원하지 않아요.'), { terminal: true });
+    return composeLegacy(base, ticket.message, ticket.body.request.session_id ? { session_id: ticket.body.request.session_id, revision: ticket.body.request.expected_revision } : null, signal);
   }
-  try {
-    // Keep existing deployments configured for v1 working while v2 is deployed separately.
-    if (isLegacyEndpoint(base)) {
-      if (operation === 'preview') throw new Error('이 연결에서는 화면 미리보기를 지원하지 않아요.');
-      return await composeLegacy(base, message, screen, signal);
-    }
+  let jobId = ticket.job_id;
+  let job;
+  if (resume && !jobId) {
+    // A lost POST acknowledgement is resolved by its original key. Never create a
+    // new job on reload, even when the original request cannot be found.
+    job = await readJob(await fetch(base + '/requests/' + ticket.body.client_request_id, { signal }));
+    jobId = job.job_id; onJob(jobId);
+  } else if (!jobId) {
     let response;
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      try { response = await fetch(base + '/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal }); break; }
+      try { response = await fetch(base + '/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ticket.body), signal }); break; }
       catch (error) { if (attempt || signal.aborted) throw error; }
     }
-    const submitted = await read(response);
-    while (!signal.aborted) {
-      let polled;
+    const submitted = await readJob(response); jobId = submitted.job_id; onJob(jobId);
+  }
+  while (!signal.aborted) {
+    if (!job) {
+      let response;
       for (let attempt = 0; attempt < 3; attempt += 1) {
-        try { polled = await fetch(base + '/jobs/' + submitted.job_id, { signal }); break; }
-        catch (error) {
-          if (attempt === 2 || signal.aborted) throw error;
-          await new Promise(resolve => setTimeout(resolve, 200 * (attempt + 1)));
-        }
+        try { response = await fetch(base + '/jobs/' + jobId, { signal }); break; }
+        catch (error) { if (attempt === 2 || signal.aborted) throw error; }
       }
-      const job = await read(polled);
-      onProgress(job.stage);
-      if (job.status === 'completed') return job.result;
-      if (job.status === 'failed') throw Object.assign(new Error(job.error?.message || '화면을 구성하지 못했어요. 기존 화면을 유지할게요.'), { status: job.error?.status });
-      await new Promise(resolve => setTimeout(resolve, 600));
+      job = await readJob(response);
     }
-    throw new Error('시간이 오래 걸리고 있어요. 기존 화면은 유지했어요. 잠시 후 다시 시도해주세요.');
-  } catch (error) {
-    if (signal.aborted) throw new Error('시간이 오래 걸리고 있어요. 기존 화면은 유지했어요. 잠시 후 다시 시도해주세요.', { cause: error });
-    throw error;
-  } finally { clearTimeout(timer); }
+    onProgress(job.stage);
+    if (job.status === 'completed') return job.result;
+    if (job.status === 'failed') throw Object.assign(new Error(job.error?.message || '작업이 중단됐어요. 현재 화면에서 다시 요청해주세요.'), { status: job.error?.status, terminal: true });
+    await new Promise((resolve, reject) => {
+      const abort = () => { clearTimeout(timer); reject(signal.reason); };
+      const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve(); }, 600);
+      signal.addEventListener('abort', abort, { once: true });
+    });
+    job = null;
+  }
+  throw new Error('연결이 끊겼어요. 작업 다시 연결을 눌러주세요.');
+}
+
+export async function composeScreen(message, screen, calculation, onProgress = () => {}, operation = 'compose') {
+  return runComposition(createComposition(message, screen, calculation, operation), { onProgress });
 }
 
 
@@ -111,15 +126,15 @@ export function validateProposal(previous, proposal) {
   return proposal;
 }
 
-async function screenRequest(path, body) {
+async function screenRequest(path, body, method) {
   const response = await fetch(apiBase() + path, {
-    method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json' },
+    method: method || (body ? 'POST' : 'GET'), headers: { 'Content-Type': 'application/json' },
     ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(15000),
   });
   const result = await response.json();
   if (!response.ok) throw Object.assign(new Error([409, 410].includes(response.status)
     ? '화면이 변경되었거나 변경안이 만료됐어요. 최신 화면을 불러와주세요.'
-    : '화면을 연결하지 못했어요. 같은 버튼으로 다시 시도할 수 있어요.'), { status: response.status });
+    : '화면을 연결하지 못했어요. 같은 버튼으로 다시 시도할 수 있어요.'), { status: response.status, terminal: response.status < 500 });
   return result;
 }
 
@@ -141,3 +156,7 @@ export function restoreScreen(screen, targetRevision) {
   return screenRequest('/sessions/' + encodeURIComponent(screen.session_id) + '/restore',
     { target_revision: targetRevision, expected_revision: screen.revision });
 }
+
+export const loadLoanScenarios = session => screenRequest('/sessions/' + encodeURIComponent(session) + '/scenarios');
+export const saveLoanScenario = (session,body) => screenRequest('/sessions/' + encodeURIComponent(session) + '/scenarios',body);
+export const deleteLoanScenario = (session,id) => screenRequest('/sessions/' + encodeURIComponent(session) + '/scenarios/' + encodeURIComponent(id),null,'DELETE');

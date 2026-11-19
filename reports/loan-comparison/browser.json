@@ -1,0 +1,63 @@
+{
+  "scope": "real React/Python/SQLite and existing Decimal calculator; only initial screen model is scripted",
+  "checks": [
+    "save inputs without changing canvas",
+    "12 vs 24 month payment and interest tradeoff",
+    "lost save acknowledgement retried with same key, no duplicate scenario",
+    "comparison and drafts restored after reload",
+    "different principals suppress rankings",
+    "zero interest case",
+    "four item cap and freed slot after delete",
+    "baseline recalculated after delete",
+    "lost delete acknowledgement safely retried",
+    "no additional model calls or canvas revisions",
+    "mobile and desktop capture",
+    "no browser errors"
+  ],
+  "two_scenario_summary": [
+    {
+      "label": "12개월",
+      "input": {
+        "kind": "amortized_loan",
+        "principal_won": "10000000",
+        "annual_rate_percent": "4.5",
+        "months": 12
+      },
+      "values": {
+        "regular_payment_won": "853785",
+        "total_interest_won": "245424",
+        "total_payment_won": "10245424"
+      },
+      "difference_from_first": {
+        "regular_payment_won": "0",
+        "total_interest_won": "0",
+        "total_payment_won": "0"
+      }
+    },
+    {
+      "label": "24개월",
+      "input": {
+        "kind": "amortized_loan",
+        "principal_won": "10000000",
+        "annual_rate_percent": "4.5",
+        "months": 24
+      },
+      "values": {
+        "regular_payment_won": "436478",
+        "total_interest_won": "475475",
+        "total_payment_won": "10475475"
+      },
+      "difference_from_first": {
+        "regular_payment_won": "-417307",
+        "total_interest_won": "230051",
+        "total_payment_won": "230051"
+      }
+    }
+  ],
+  "state": {
+    "model_calls": 1,
+    "revisions": [
+      1
+    ]
+  }
+}

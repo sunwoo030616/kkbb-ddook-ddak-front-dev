@@ -1,0 +1,20 @@
+{
+  "scope": "real browser and Python API, delayed deterministic model; acknowledgements deliberately withheld",
+  "checks": [
+    "lost POST acknowledgement resolved by original key without resubmission",
+    "reload during generation resumes same job",
+    "screen, unsaved form and chat draft survive reload",
+    "pending proposal survives reload without applying",
+    "lost commit acknowledgement replays same decision with one revision increment",
+    "no duplicate assistant confirmation",
+    "no browser errors"
+  ],
+  "submissions": 3,
+  "request_lookups": 2,
+  "state": {
+    "model_calls": 3,
+    "revisions": [
+      2
+    ]
+  }
+}

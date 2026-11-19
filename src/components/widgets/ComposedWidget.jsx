@@ -8,28 +8,40 @@ const FIELDS = {
   loan_inputs_widget: [['principal_won','대출 원금 (원)'],['annual_rate_percent','연 금리 (%)'],['months','상환 개월 수']],
 };
 
-function InputForm({ widget, values, onValuesChange, onSubmit, busy }) {
+function InputForm({ widget, values, onValuesChange, onSubmit, busy, onSaveScenario, scenarioCount }) {
   const defaults = widget.data?.values || {};
   const formValues = { ...defaults, ...values };
   const fields = FIELDS[widget.type];
+  const calculation = () => {
+    const input={...Object.fromEntries(fields.map(([key])=>[key,formValues[key] ?? ''])),kind:widget.type==='loan_inputs_widget'?'amortized_loan':'funding_comparison'};
+    for(const key of ['months','loan_days'])if(key in input)input[key]=Number(input[key]);
+    return input;
+  };
   return <form className="grid grid-cols-1 gap-3" onSubmit={event => {
     event.preventDefault();
-    const calculation = { ...Object.fromEntries(fields.map(([key]) => [key, formValues[key] ?? ''])),
-      kind: widget.type === 'funding_inputs_widget' ? 'funding_comparison' : 'amortized_loan' };
-    for (const key of ['months','loan_days']) if (key in calculation) calculation[key] = Number(calculation[key]);
-    onSubmit(widget.type === 'funding_inputs_widget' ? '현재 화면을 유지하고 입력한 조건으로 예금 유지·해지 비용을 계산해줘' : '현재 화면을 유지하고 입력한 조건으로 대출 월 상환표를 계산해줘', calculation);
+    onSubmit(widget.type === 'funding_inputs_widget' ? '현재 화면을 유지하고 입력한 조건으로 예금 유지·해지 비용을 계산해줘' : '현재 화면을 유지하고 입력한 조건으로 대출 월 상환표를 계산해줘', calculation());
   }}>
     {fields.map(([key,label]) => <label key={key} className="flex flex-col gap-1 text-caption-1 text-gray">{label}
-      <input aria-label={label} name={key} type="number" min="0" required step={key.includes('rate') ? '0.000001' : '1'}
+      <input aria-label={label} name={key} type="number" min={['principal_won','loan_principal_won','months','loan_days'].includes(key)?1:0} max={key==='months'?600:key==='loan_days'?3650:key.includes('rate')?100:1000000000000} required step={key.includes('rate') ? '0.000001' : '1'}
         value={formValues[key] ?? ''} disabled={busy}
         onChange={event => onValuesChange({ ...formValues, [key]: event.target.value })}
         className="rounded-button border border-gray/20 bg-background p-3 text-body-2 text-darkgray outline-yellow" />
     </label>)}
     <button disabled={busy} className="rounded-button bg-yellow py-3 text-body-1 disabled:opacity-50">이 조건으로 계산</button>
+    {widget.type==='loan_inputs_widget' && onSaveScenario && <>
+      <label className="flex flex-col gap-1 text-caption-1 text-gray">비교 조건 이름 (선택)
+        <input aria-label="비교 조건 이름" maxLength={40} value={formValues.scenario_label || ''} disabled={busy}
+          onChange={event=>onValuesChange({...formValues,scenario_label:event.target.value})} className="rounded-button border border-gray/20 bg-background p-3 text-body-2" />
+      </label>
+      <button type="button" disabled={busy || scenarioCount>=4} onClick={event=>{
+        if(event.currentTarget.form.reportValidity())onSaveScenario(calculation(),formValues.scenario_label?.trim() || `${formValues.months}개월 · 연 ${formValues.annual_rate_percent}%`);
+      }} className="rounded-button border border-gray/20 p-3 text-body-2 disabled:opacity-50">이 조건을 비교에 저장</button>
+      {scenarioCount>=4 && <p className="text-caption-1 text-gray">4개를 저장했어요. 비교에서 조건을 삭제하면 더 저장할 수 있어요.</p>}
+    </>}
   </form>;
 }
 
-export default function ComposedWidget({ widget, values, onValuesChange, onSubmit, busy, referenceData }) {
+export default function ComposedWidget({ widget, values, onValuesChange, onSubmit, busy, referenceData, onSaveScenario, scenarioCount }) {
   const [expanded, setExpanded] = useState(false);
   const data = widget.data || {}, context = widget.context || {};
   const quote = referenceData?.fx_quote || data.fx_quote;
@@ -37,7 +49,7 @@ export default function ComposedWidget({ widget, values, onValuesChange, onSubmi
   const currency = data.currency || context.currency;
   return <section data-widget={widget.type} className="flex flex-col gap-3 rounded-card bg-white px-4 py-5">
     <Title icon={shield} title={widget.title} />
-    {FIELDS[widget.type] ? <InputForm {...{ widget, values, onValuesChange, onSubmit, busy }} /> :
+    {FIELDS[widget.type] ? <InputForm {...{ widget, values, onValuesChange, onSubmit, busy, onSaveScenario, scenarioCount }} /> :
       widget.data_origin === 'server_decimal_calculator' ? <>
         {data.values?.interest_difference_won !== undefined && <>
           <p className="text-body-2 text-gray">대출 비용을 뺀 만기 이자와 중도해지 이자의 차이</p>
