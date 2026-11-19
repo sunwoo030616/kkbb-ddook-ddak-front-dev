@@ -14,9 +14,9 @@ import AtmDes from "./widgets/AtmDes.jsx";
 import Done from "./widgets/Done.jsx";
 import ReceiveInfo from "./widgets/ReceiveInfo.jsx";
 
-function WidgetRenderer({ widget, onSheetOpenChanged, values, onValuesChange, onSubmit, busy }) {
+function WidgetRenderer({ widget, onSheetOpenChanged, values, onValuesChange, onSubmit, busy, referenceData }) {
   if (widget.id && widget.data_origin) {
-    return <ComposedWidget {...{ widget, values, onValuesChange, onSubmit, busy }} />;
+    return <ComposedWidget {...{ widget, values, onValuesChange, onSubmit, busy, referenceData }} />;
   }
   switch (widget.type) {
     case "travel_card_charge_widget":

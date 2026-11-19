@@ -45,23 +45,26 @@ export async function composeLegacy(base, message, previous, signal) {
 }
 
 
-export async function composeScreen(message, screen, calculation, onProgress = () => {}) {
+export async function composeScreen(message, screen, calculation, onProgress = () => {}, operation = 'compose') {
   const base = (import.meta.env?.VITE_CHAT_API_URL || '/api/canvas/v2').replace(/\/$/, '');
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 180000);
   const signal = controller.signal;
-  const body = JSON.stringify({ request: requestBody(message, screen, calculation), client_request_id: crypto.randomUUID() });
+  const body = JSON.stringify({ request: requestBody(message, screen, calculation), client_request_id: crypto.randomUUID(), ...(operation === 'preview' ? { operation } : {}) });
   async function read(response) {
     const value = await response.json();
     if (!response.ok) {
-      if (response.status === 409) throw new Error('화면이 이미 변경되었어요. 새 대화에서 다시 시작해주세요.');
+      if ([409, 410].includes(response.status)) throw Object.assign(new Error('화면이 변경되었거나 만료됐어요. 최신 화면을 불러와주세요.'), { status: response.status });
       throw new Error(typeof value.detail === 'string' ? value.detail : value.error || '화면 구성을 연결하지 못했어요. 기존 화면을 유지할게요.');
     }
     return value;
   }
   try {
     // Keep existing deployments configured for v1 working while v2 is deployed separately.
-    if (isLegacyEndpoint(base)) return await composeLegacy(base, message, screen, signal);
+    if (isLegacyEndpoint(base)) {
+      if (operation === 'preview') throw new Error('이 연결에서는 화면 미리보기를 지원하지 않아요.');
+      return await composeLegacy(base, message, screen, signal);
+    }
     let response;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try { response = await fetch(base + '/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal }); break; }
@@ -80,7 +83,7 @@ export async function composeScreen(message, screen, calculation, onProgress = (
       const job = await read(polled);
       onProgress(job.stage);
       if (job.status === 'completed') return job.result;
-      if (job.status === 'failed') throw new Error(job.error?.message || '화면을 구성하지 못했어요. 기존 화면을 유지할게요.');
+      if (job.status === 'failed') throw Object.assign(new Error(job.error?.message || '화면을 구성하지 못했어요. 기존 화면을 유지할게요.'), { status: job.error?.status });
       await new Promise(resolve => setTimeout(resolve, 600));
     }
     throw new Error('시간이 오래 걸리고 있어요. 기존 화면은 유지했어요. 잠시 후 다시 시도해주세요.');
@@ -88,4 +91,46 @@ export async function composeScreen(message, screen, calculation, onProgress = (
     if (signal.aborted) throw new Error('시간이 오래 걸리고 있어요. 기존 화면은 유지했어요. 잠시 후 다시 시도해주세요.', { cause: error });
     throw error;
   } finally { clearTimeout(timer); }
+}
+
+
+const apiBase = () => (import.meta.env?.VITE_CHAT_API_URL || '/api/canvas/v2').replace(/\/$/, '');
+export const supportsScreenReview = () => !isLegacyEndpoint(apiBase());
+
+export function validateProposal(previous, proposal) {
+  const screen = proposal?.screen;
+  if (proposal?.status !== 'pending' || !/^[a-f0-9-]{36}$/.test(proposal.proposal_id)
+      || !/^[a-f0-9]{64}$/.test(proposal.proposal_digest)
+      || proposal.base_revision !== (previous?.revision ?? 0) || screen?.status !== 'preview'
+      || !Number.isFinite(proposal.expires_at) || !screen.session_id
+      || screen.revision !== proposal.base_revision + 1
+      || (previous && screen.session_id !== previous.session_id)
+      || !Array.isArray(screen.widgets) || screen.widgets.some(w => !SUPPORTED_WIDGETS.includes(w.type))) {
+    throw new Error('변경안을 확인하지 못했어요. 기존 화면을 유지할게요.');
+  }
+  return proposal;
+}
+
+async function screenRequest(path, body) {
+  const response = await fetch(apiBase() + path, {
+    method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json' },
+    ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(15000),
+  });
+  const result = await response.json();
+  if (!response.ok) throw Object.assign(new Error([409, 410].includes(response.status)
+    ? '화면이 변경되었거나 변경안이 만료됐어요. 최신 화면을 불러와주세요.'
+    : '화면을 연결하지 못했어요. 같은 버튼으로 다시 시도할 수 있어요.'), { status: response.status });
+  return result;
+}
+
+export function decideProposal(proposal, decision) {
+  if (!['commit', 'cancel'].includes(decision) || !/^[a-f0-9-]{36}$/.test(proposal?.proposal_id)) throw new Error('올바르지 않은 변경안이에요.');
+  return screenRequest('/proposals/' + proposal.proposal_id + '/' + decision,
+    { proposal_digest: proposal.proposal_digest, expected_revision: proposal.base_revision });
+}
+export const loadCurrentScreen = session => screenRequest('/sessions/' + encodeURIComponent(session));
+export function acceptRefreshedScreen(previous, incoming) {
+  if (incoming.status !== 'composed' || !previous || incoming.session_id !== previous.session_id
+      || incoming.revision < previous.revision) throw new Error('최신 화면을 확인하지 못했어요.');
+  return acceptScreen(null, incoming);
 }

@@ -29,9 +29,10 @@ function InputForm({ widget, values, onValuesChange, onSubmit, busy }) {
   </form>;
 }
 
-export default function ComposedWidget({ widget, values, onValuesChange, onSubmit, busy }) {
+export default function ComposedWidget({ widget, values, onValuesChange, onSubmit, busy, referenceData }) {
   const [expanded, setExpanded] = useState(false);
   const data = widget.data || {}, context = widget.context || {};
+  const quote = referenceData?.fx_quote || data.fx_quote;
   const rows = data.values?.schedule;
   const currency = data.currency || context.currency;
   return <section data-widget={widget.type} className="flex flex-col gap-3 rounded-card bg-white px-4 py-5">
@@ -60,10 +61,10 @@ export default function ComposedWidget({ widget, values, onValuesChange, onSubmi
         {context.destination && <p className="text-body-2">목적지 <strong>{context.destination}</strong>{context.trip_days ? ` · ${context.trip_days}일 일정` : ''}</p>}
         {currency && <p className="text-body-2">통화 <strong>{currency}</strong></p>}
         {context.amount && <p className="text-body-2">요청 금액 {number(context.amount.value)} {context.amount.currency}</p>}
-        {data.fx_quote && <div className="flex flex-col gap-2 rounded-button bg-background p-3">
-          <p className="text-body-2">참고환율 1 {currency} ≈ {number(data.fx_quote.krw_per_unit)}원</p>
-          {data.fx_quote.estimated_krw && <strong className="text-title">예상 원화 {number(data.fx_quote.estimated_krw)}원</strong>}
-          <p className="text-caption-1 text-gray">{data.fx_quote.stale ? '이전 조회 자료 · ' : ''}실제 은행 거래 환율·수수료는 별도로 확인해주세요.</p>
+        {quote && <div className="flex flex-col gap-2 rounded-button bg-background p-3">
+          <p className="text-body-2">참고환율 1 {currency} ≈ {number(quote.krw_per_unit)}원</p>
+          {quote.estimated_krw && <strong className="text-title">예상 원화 {number(quote.estimated_krw)}원</strong>}
+          <p className="text-caption-1 text-gray">{quote.stale ? '이전 조회 자료 · ' : ''}실제 은행 거래 환율·수수료는 별도로 확인해주세요.</p>
           <a href="https://www.exchangerate-api.com" target="_blank" rel="noreferrer" className="text-caption-1 text-gray underline">Rates By Exchange Rate API</a>
         </div>}
         {context.group_name && <p className="text-body-2">모임 {context.group_name}</p>}

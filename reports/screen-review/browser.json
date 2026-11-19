@@ -1,0 +1,20 @@
+{
+  "model": "deterministic fixture, not a model quality benchmark",
+  "checks": [
+    "preview does not persist",
+    "preview renders added widget",
+    "cancel retains unsaved input",
+    "confirm retains input",
+    "confirmation uses no additional model call",
+    "concurrent client update returns conflict without overwriting local draft",
+    "explicit latest-screen recovery",
+    "mobile review and desktop screenshot",
+    "no browser page errors"
+  ],
+  "state": {
+    "model_calls": 4,
+    "revisions": [
+      3
+    ]
+  }
+}

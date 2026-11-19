@@ -2,6 +2,8 @@
 
 기존 깨비 캐릭터·채팅 시작·위젯 카드 흐름에서 Spring v2의 비동기 화면 구성 작업을 호출합니다.
 
+후속 화면 수정은 **변경 내용 확인 → 미리보기 → 적용 또는 기존 화면 유지** 순서로 진행합니다. 확인 전에는 기존 화면을 보존하고, 취소해도 작성하던 입력값이 남습니다. 중복 확인·동시 수정·만료는 서버가 검사합니다. [백엔드 설계와 검증](https://github.com/sunwoo030616/KKBB-ddook-ddak-back-dev/blob/main/docs/화면_변경_미리보기.md).
+
 ```bash
 npm ci
 cp .env.example .env.local
@@ -21,6 +23,24 @@ npm run dev
 - `src/components/widgets/ComposedWidget.jsx`: 계산 폼·결과·출처·맥락·참고 환율 표시.
 
 브라우저에는 API 키를 넣지 않습니다. 생성은 로컬 모델을 사용하고 실제 계좌 거래는 수행하지 않습니다.
+
+## 화면 변경 브라우저 검사
+
+`npm test` 13개, `npm run lint`, `npm run build`를 통과했습니다. [브라우저 검사 결과](reports/screen-review/browser.json)와 [모바일 변경 확인 화면](reports/screen-review/mobile-review.png)을 함께 저장했습니다.
+
+브라우저 시험은 고정 모델 응답과 실제 Python 컴파일러·SQLite·API를 연결합니다. 실제 모델의 정확도를 재는 시험이 아닙니다. 새 fixture 프로세스에서 실행합니다.
+
+```bash
+# 백엔드 저장소의 별도 터미널
+python -m scripts.screen_review_fixture
+# 이 프론트 저장소의 별도 터미널 (기본 Spring 프록시 대신 검증용 Python API 사용)
+VITE_DEV_COMPOSER_URL=http://127.0.0.1:8877 npm run dev
+# Chrome과 Playwright 설치 환경
+node scripts/verify-screen-review.mjs
+# 로컬 외부 설치 모듈을 사용할 경우 PLAYWRIGHT_MODULE에 모듈 경로 지정 가능
+```
+
+기본 실행은 기존 Spring 프록시를 사용합니다. 공개 v1 사이트의 배포와는 별개입니다.
 
 <div align="center">
 
