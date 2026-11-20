@@ -6,15 +6,18 @@ import WidgetRenderer from '../components/WidgetRenderer.jsx';
 import ScreenHistory from '../components/ScreenHistory.jsx';
 import LoanComparison from '../components/LoanComparison.jsx';
 import LoanSelectionReview from '../components/LoanSelectionReview.jsx';
+import LoanTermSearch from '../components/LoanTermSearch.jsx';
 import kkaebiFace from '../assets/logo/kkaebi-face.svg';
 import { supportsScreenReview } from '../lib/canvasClient.js';
 
 export default function ChatPage() {
   const [state,workspace]=useCanvasWorkspace();
-  const {screen,messages,isLoading,error,stage,inputValues,proposal,showPreview,needsRefresh,history,connectionLost,notice,storageFailed,draft,pending,comparison,comparisonOpen,budgetDraft}=state;
+  const {screen,messages,isLoading,error,stage,inputValues,proposal,showPreview,needsRefresh,history,connectionLost,notice,storageFailed,draft,pending,comparison,comparisonOpen,budgetDraft,budgetDirty,termMaxMonths,termSearch}=state;
   const [isSheetOpen,setIsSheetOpen]=useState(false);
   const reviewRef=useRef(null);
+  const termRef=useRef(null);
   useEffect(()=>{if(proposal)reviewRef.current?.scrollIntoView({block:'start',behavior:'auto'});},[proposal]);
+  useEffect(()=>{if(termSearch && !proposal)termRef.current?.scrollIntoView({block:'start',behavior:'auto'});},[termSearch,proposal]);
   const submit=workspace.submit,decide=workspace.decide,refresh=workspace.refresh,toggleHistory=workspace.toggleHistory,beginRestore=workspace.beginRestore;
   const displayed = showPreview && proposal ? proposal.screen : screen;
   const references = showPreview && proposal ? proposal.reference_data : screen?.reference_data;
@@ -27,7 +30,7 @@ export default function ChatPage() {
         {message.role === 'assistant' && <img src={kkaebiFace} className="mt-1 h-7 w-7 shrink-0" alt="깨비" />}
         <span>{message.text}</span>
       </div>)}
-      {isLoading && <p role="status" className="py-3 text-body-2 text-gray">{({ queued: '요청을 준비하고 있어요…', context: '이전 대화와 이번 상황을 함께 확인하고 있어요…', understanding: '요청한 일과 제외할 조건을 확인하고 있어요…', component_retrieval: '필요한 금융 기능을 찾고 있어요…', planning: '상황에 맞는 화면을 설계하고 있어요…', repair: '화면 구성을 다시 확인하고 있어요…', reviewing: '요청한 기능과 제외 조건을 다시 검토하고 있어요…', refining: '검토 결과를 반영해 화면을 다듬고 있어요…', evidence: '공식 자료에서 필요한 근거를 확인하고 있어요…', binding: '입력값과 금융 기능을 연결하고 있어요…', committing: '화면을 반영하고 있어요…' })[stage] || '화면을 구성하고 있어요…'}</p>}
+      {isLoading && <p role="status" className="py-3 text-body-2 text-gray">{({ loan_terms: '저장한 예산으로 기간별 상환액을 계산하고 있어요…', queued: '요청을 준비하고 있어요…', context: '이전 대화와 이번 상황을 함께 확인하고 있어요…', understanding: '요청한 일과 제외할 조건을 확인하고 있어요…', component_retrieval: '필요한 금융 기능을 찾고 있어요…', planning: '상황에 맞는 화면을 설계하고 있어요…', repair: '화면 구성을 다시 확인하고 있어요…', reviewing: '요청한 기능과 제외 조건을 다시 검토하고 있어요…', refining: '검토 결과를 반영해 화면을 다듬고 있어요…', evidence: '공식 자료에서 필요한 근거를 확인하고 있어요…', binding: '입력값과 금융 기능을 연결하고 있어요…', committing: '화면을 반영하고 있어요…' })[stage] || '화면을 구성하고 있어요…'}</p>}
     </section>
     {notice && <p role="status" className="rounded-card bg-white p-3 text-body-2 text-gray">{notice}</p>}
     {storageFailed && <p role="status" className="rounded-card bg-white p-3 text-body-2 text-gray">이 브라우저에서는 임시 저장을 사용할 수 없어 새로고침 후 작업 복구가 제한돼요.</p>}
@@ -36,7 +39,8 @@ export default function ChatPage() {
     {needsRefresh && screen && <button disabled={isLoading} onClick={refresh} className="rounded-button bg-white p-3 text-body-2 underline">최신 화면 불러오기 · 입력값 초기화</button>}
     {screen && supportsScreenReview() && <button disabled={busy} onClick={toggleHistory} aria-expanded={!!history} className="rounded-button bg-white p-3 text-body-2 underline disabled:opacity-50">{history ? '화면 이력 닫기' : '저장된 화면 보기'}</button>}
     {screen && supportsScreenReview() && (screen.widgets.some(widget=>widget.type==='loan_inputs_widget') || comparisonOpen) && <button disabled={busy} onClick={workspace.toggleComparison} aria-expanded={comparisonOpen} className="rounded-button bg-white p-3 text-body-2 underline disabled:opacity-50">{comparisonOpen?'대출 비교 닫기':'저장한 대출 조건 비교'}</button>}
-    {comparisonOpen && comparison && <LoanComparison comparison={comparison} onDelete={workspace.deleteScenario} onApply={workspace.applyScenario} budgetDraft={budgetDraft} onBudgetDraft={workspace.budgetDraft} onBudgetSave={workspace.saveBudget} selectedId={screen?.loan_selection?.scenario_id} busy={busy} />}
+    {comparisonOpen && comparison && <LoanComparison comparison={comparison} onDelete={workspace.deleteScenario} onApply={workspace.applyScenario} budgetDraft={budgetDraft} onBudgetDraft={workspace.budgetDraft} onBudgetSave={workspace.saveBudget} selectedId={screen?.loan_selection?.scenario_id} termMaxMonths={termMaxMonths} onTermMaxMonths={workspace.termMaxMonths} onFindTerms={workspace.findTerms} budgetDirty={budgetDirty} busy={busy} />}
+    {comparisonOpen && comparison && termSearch && <div ref={termRef} className="scroll-mt-20"><LoanTermSearch result={termSearch} comparison={comparison} onSave={workspace.saveFoundTerm} busy={busy} /></div>}
     {history && <ScreenHistory history={history} onRestore={beginRestore} busy={busy} />}
     {proposal && <section ref={reviewRef} aria-label="화면 변경 확인" className="scroll-mt-20 flex flex-col gap-3 rounded-card border border-yellow bg-white p-4">
       <h2 className="text-title">변경 내용을 확인해주세요</h2>

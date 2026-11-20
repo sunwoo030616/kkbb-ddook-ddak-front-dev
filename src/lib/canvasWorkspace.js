@@ -1,22 +1,22 @@
 import { acceptScreen, acceptRefreshedScreen, createComposition, runComposition, validateProposal,
-  retainInputValues, supportsScreenReview, decideProposal, loadCurrentScreen, loadScreenHistory, restoreScreen, loadLoanScenarios, saveLoanScenario, deleteLoanScenario, setLoanBudget, applyLoanScenario } from './canvasClient.js';
+  retainInputValues, supportsScreenReview, decideProposal, loadCurrentScreen, loadScreenHistory, restoreScreen, loadLoanScenarios, saveLoanScenario, deleteLoanScenario, setLoanBudget, applyLoanScenario, searchLoanTerms, saveFoundLoanTerm } from './canvasClient.js';
 import { readSession, writeSession, clearSession, emptySession } from './canvasSession.js';
 
 export class CanvasWorkspace {
   constructor({ storage, api = {}, now = Date.now } = {}) {
     this.storage=storage;this.now=now;
-    this.api={runComposition,decideProposal,loadCurrentScreen,loadScreenHistory,restoreScreen,loadLoanScenarios,saveLoanScenario,deleteLoanScenario,setLoanBudget,applyLoanScenario,...api};
+    this.api={runComposition,decideProposal,loadCurrentScreen,loadScreenHistory,restoreScreen,loadLoanScenarios,saveLoanScenario,deleteLoanScenario,setLoanBudget,applyLoanScenario,searchLoanTerms,saveFoundLoanTerm,...api};
     const saved=readSession(storage,now());
     this.state={...emptySession(),...saved,isLoading:!!saved,stage:'context',error:'',notice:'',needsRefresh:false,
       history:null,comparison:null,showPreview:false,connectionLost:false,storageFailed:false};
-    this.listeners=new Set();this.epoch=0;this.controller=null;this.saved=!!saved;
+    this.listeners=new Set();this.epoch=0;this.controller=null;this.saved=!!saved;this.termFlight=null;
   }
   subscribe = listener => { this.listeners.add(listener);return () => this.listeners.delete(listener); };
   snapshot = () => this.state;
   update = patch => {
     this.state={...this.state,...patch};
-    const {screen,messages,inputValues,proposal,pending,draft,comparisonOpen,budgetDraft,budgetDirty}=this.state;
-    const ok=writeSession({screen,messages,inputValues,proposal,pending,draft,comparisonOpen,budgetDraft,budgetDirty},this.storage,this.now());
+    const {screen,messages,inputValues,proposal,pending,draft,comparisonOpen,budgetDraft,budgetDirty,termMaxMonths,termSearch}=this.state;
+    const ok=writeSession({screen,messages,inputValues,proposal,pending,draft,comparisonOpen,budgetDraft,budgetDirty,termMaxMonths,termSearch},this.storage,this.now());
     this.state={...this.state,storageFailed:!ok};
     this.listeners.forEach(listener=>listener());
   };
@@ -28,9 +28,13 @@ export class CanvasWorkspace {
   message = text => ({id:crypto.randomUUID(),role:'assistant',text});
   applyResult = (result,ticket) => {
     const s=this.state;
-    if(['scenarioSave','scenarioDelete','budgetSave'].includes(ticket.kind)) {
+    if(ticket.kind==='termSearch') {
+      if(!['found','no_match'].includes(result.status) || !Array.isArray(result.candidates))throw new Error('기간 계산 결과를 확인하지 못했어요.');
+      this.update({pending:null,termSearch:result,comparisonOpen:true});return;
+    }
+    if(['scenarioSave','scenarioDelete','budgetSave','termSave'].includes(ticket.kind)) {
       if(!Array.isArray(result.items))throw new Error('저장된 비교 조건을 확인하지 못했어요.');
-      this.update({pending:null,comparison:result,comparisonOpen:true,...(ticket.kind==='budgetSave'?{budgetDraft:result.budget_won ?? '',budgetDirty:false}:this.budgetFields(result))});return;
+      this.update({pending:null,comparison:result,comparisonOpen:true,termSearch:ticket.kind==='budgetSave'?null:this.validTermSearch(result),...(ticket.kind==='budgetSave'?{budgetDraft:result.budget_won ?? '',budgetDirty:false}:this.budgetFields(result))});return;
     }
     if(ticket.kind==='decision' && ticket.decision==='cancel') {
       if(result.status!=='cancelled')throw new Error('취소 결과를 확인하지 못했어요.');
@@ -68,7 +72,7 @@ export class CanvasWorkspace {
   };
   perform = async (ticket,resume=false,reconcile=false) => {
     const epoch=++this.epoch;this.controller?.abort();this.controller=new AbortController();
-    this.update({isLoading:true,error:'',connectionLost:false,stage:ticket?.kind==='decision'?'committing':'context'});
+    this.update({isLoading:true,error:'',connectionLost:false,stage:ticket?.kind==='decision'?'committing':ticket?.kind==='termSearch'?'loan_terms':'context'});
     try {
       if(ticket) {
         const result=ticket.kind==='compose'
@@ -80,6 +84,8 @@ export class CanvasWorkspace {
           :ticket.kind==='scenarioDelete'?await this.api.deleteLoanScenario(ticket.session,ticket.id)
           :ticket.kind==='budgetSave'?await this.api.setLoanBudget(ticket.session,ticket.body)
           :ticket.kind==='scenarioApply'?await this.api.applyLoanScenario(ticket.screen,ticket.id)
+          :ticket.kind==='termSearch'?await this.runTermSearch(ticket)
+          :ticket.kind==='termSave'?await this.api.saveFoundLoanTerm(ticket.session,ticket.id,ticket.body)
           :await this.api.restoreScreen(ticket.screen,ticket.target);
         if(epoch!==this.epoch)return false;
         this.applyResult(result,ticket);
@@ -89,15 +95,15 @@ export class CanvasWorkspace {
         this.reconcileResult(latest);
         if(this.state.comparisonOpen && this.state.screen) {
           const comparison=await this.api.loadLoanScenarios(this.state.screen.session_id);
-          if(epoch!==this.epoch)return false;this.update({comparison,...this.budgetFields(comparison)});
+          if(epoch!==this.epoch)return false;this.update({comparison,termSearch:this.validTermSearch(comparison),...this.budgetFields(comparison)});
         }
       }
       return true;
     } catch(error) {
       if(epoch!==this.epoch)return false;
-      if(ticket?.kind==='budgetSave' && error.status===409) {
-        this.update({pending:null,error:'다른 요청에서 예산이 바뀌었어요. 최신 예산을 확인한 뒤 다시 저장해주세요.'});
-        try {const comparison=await this.api.loadLoanScenarios(ticket.session);if(epoch===this.epoch)this.update({comparison});}
+      if(['budgetSave','termSearch','termSave'].includes(ticket?.kind) && error.status===409) {
+        this.update({pending:null,termSearch:null,error:'다른 요청에서 예산이나 원래 조건이 바뀌었어요. 최신 내용을 확인한 뒤 다시 시도해주세요.'});
+        try {const comparison=await this.api.loadLoanScenarios(ticket.session);if(epoch===this.epoch)this.update({comparison,...this.budgetFields(comparison)});}
         catch {if(epoch===this.epoch)this.update({connectionLost:true});}
         return false;
       }
@@ -131,7 +137,7 @@ export class CanvasWorkspace {
       if(this.state.comparisonOpen && latest)comparison=await this.api.loadLoanScenarios(latest.session_id);
       if(epoch!==this.epoch)return;
       this.update({screen:latest || this.state.screen,inputValues:{},pending:null,proposal:null,history:null,needsRefresh:false,connectionLost:false,
-        ...(comparison?{comparison,...this.budgetFields(comparison)}:{})});
+        ...(comparison?{comparison,termSearch:this.validTermSearch(comparison),...this.budgetFields(comparison)}:{})});
     } catch(error) { if(epoch===this.epoch)this.update({error:error.message}); }
     finally {if(epoch===this.epoch)this.update({isLoading:false});}
   };
@@ -154,7 +160,7 @@ export class CanvasWorkspace {
     const epoch=++this.epoch;this.update({isLoading:true,error:'',stage:'context'});
     try {
       const comparison=await this.api.loadLoanScenarios(this.state.screen.session_id);
-      if(epoch===this.epoch)this.update({comparison,comparisonOpen:true,...this.budgetFields(comparison)});
+      if(epoch===this.epoch)this.update({comparison,comparisonOpen:true,termSearch:this.validTermSearch(comparison),...this.budgetFields(comparison)});
     } catch(error){if(epoch===this.epoch)this.update({error:error.message});}
     finally{if(epoch===this.epoch)this.update({isLoading:false});}
   };
@@ -170,7 +176,7 @@ export class CanvasWorkspace {
     this.update({pending:ticket});return this.perform(ticket);
   };
   budgetFields = comparison => this.state.budgetDirty?{}:{budgetDraft:comparison.budget_won ?? '',budgetDirty:false};
-  budgetDraft = value => this.update({budgetDraft:value,budgetDirty:true});
+  budgetDraft = value => this.update({budgetDraft:value,budgetDirty:true,termSearch:null});
   saveBudget = (clear=false) => {
     if(this.locked() || !this.state.comparison)return;
     const ticket={kind:'budgetSave',session:this.state.screen.session_id,created_at:this.now(),
@@ -181,6 +187,35 @@ export class CanvasWorkspace {
   applyScenario = id => {
     if(this.locked())return;
     const ticket={kind:'scenarioApply',screen:{session_id:this.state.screen.session_id,revision:this.state.screen.revision},id,created_at:this.now()};
+    this.update({pending:ticket});return this.perform(ticket);
+  };
+  runTermSearch = ticket => {
+    const key=JSON.stringify([ticket.session,ticket.id,ticket.body]);
+    if(this.termFlight?.key===key)return this.termFlight.promise;
+    const promise=Promise.resolve().then(()=>this.api.searchLoanTerms(ticket.session,ticket.id,ticket.body))
+      .finally(()=>{if(this.termFlight?.key===key)this.termFlight=null;});
+    this.termFlight={key,promise};return promise;
+  };
+  validTermSearch = comparison => {
+    const result=this.state.termSearch;
+    return result && comparison.budget_revision===result.budget_revision && comparison.items.some(item=>item.id===result.source_scenario_id)?result:null;
+  };
+  termMaxMonths = value => this.update({termMaxMonths:value,termSearch:null});
+  findTerms = id => {
+    const s=this.state;
+    if(this.locked() || s.budgetDirty || s.comparison?.budget_won==null)return;
+    const n=Number(s.termMaxMonths);
+    if(!Number.isInteger(n)||n<1||n>600){this.update({error:'최대 상환 기간은 1~600개월 사이 정수로 입력해주세요.'});return;}
+    const ticket={kind:'termSearch',session:s.screen.session_id,id,created_at:this.now(),
+      body:{max_months:n,expected_budget_revision:s.comparison.budget_revision}};
+    this.update({pending:ticket,termSearch:null});return this.perform(ticket);
+  };
+  saveFoundTerm = index => {
+    const s=this.state,result=s.termSearch,candidate=result?.candidates[index];
+    if(this.locked() || s.budgetDirty || !candidate || !this.validTermSearch(s.comparison))return;
+    const ticket={kind:'termSave',session:s.screen.session_id,id:result.source_scenario_id,created_at:this.now(),
+      body:{client_request_id:crypto.randomUUID(),label:`${candidate.input.months}개월 · 예산 내 조건`,months:candidate.input.months,
+        max_months:result.max_months,source_fingerprint:result.fingerprint,expected_budget_revision:result.budget_revision}};
     this.update({pending:ticket});return this.perform(ticket);
   };
   preview = () => this.update({showPreview:!this.state.showPreview});

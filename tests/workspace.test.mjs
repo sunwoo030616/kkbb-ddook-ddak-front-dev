@@ -148,3 +148,59 @@ test('unsaved budget draft survives reload while server budget remains authorita
   const workspace=new CanvasWorkspace({storage:s,api:{loadCurrentScreen:async()=>screen(),loadLoanScenarios:async()=>({items:[],budget_won:'500000',budget_revision:1})}});
   await workspace.recover();assert.equal(workspace.state.budgetDraft,'123456');assert.equal(workspace.state.comparison.budget_won,'500000');
 });
+
+test('term search uses the saved source and budget, checkpoints before computing and preserves canvas',async()=>{
+  const s=storage();const comparison={budget_revision:1,budget_won:'500000',items:[{id:'source'}]};
+  const result={status:'found',candidates:[{input:{months:21}}],source_scenario_id:'source',budget_revision:1};
+  const workspace=new CanvasWorkspace({storage:s,api:{searchLoanTerms:async(session,id,body)=>{
+    assert.equal(readSession(s).pending.kind,'termSearch');assert.equal(id,'source');assert.deepEqual(body,{max_months:60,expected_budget_revision:1});return result;
+  }}});
+  workspace.update({screen:screen(),comparison});await workspace.findTerms('source');
+  assert.equal(workspace.state.screen.revision,1);assert.equal(workspace.state.termSearch,result);assert.equal(workspace.state.pending,null);
+  workspace.budgetDraft('600000');assert.equal(workspace.state.termSearch,null);
+});
+
+test('saving a found term sends only source identity, checked budget and chosen months, with stable retry key',async()=>{
+  const s=storage();const result={status:'found',source_scenario_id:'source',budget_revision:1,max_months:60,fingerprint:'a'.repeat(64),candidates:[{input:{months:21}}]};
+  const comparison={budget_revision:1,budget_won:'500000',items:[{id:'source'}]};
+  const workspace=new CanvasWorkspace({storage:s,api:{saveFoundLoanTerm:async(session,id,body)=>{
+    assert.equal(readSession(s).pending.body.client_request_id,body.client_request_id);assert.equal(body.months,21);assert.equal(body.calculation,undefined);assert.equal(body.expected_budget_revision,1);return comparison;
+  }}});
+  workspace.update({screen:screen(),comparison,termSearch:result});await workspace.saveFoundTerm(0);
+  assert.equal(workspace.state.pending,null);assert.equal(workspace.state.screen.revision,1);
+});
+
+test('reload drops a cached term search when the budget or original source changes',async()=>{
+  const s=storage();writeSession({...emptySession(),screen:screen(),comparisonOpen:true,termSearch:{source_scenario_id:'old',budget_revision:1}},s);
+  const workspace=new CanvasWorkspace({storage:s,api:{loadCurrentScreen:async()=>screen(),loadLoanScenarios:async()=>({items:[],budget_revision:2,budget_won:'600000'})}});
+  await workspace.recover();assert.equal(workspace.state.termSearch,null);
+});
+
+test('invalid term range does not send a request or lock the current screen',async()=>{
+  let calls=0;const workspace=new CanvasWorkspace({storage:storage(),api:{searchLoanTerms:async()=>{calls++;}}});
+  workspace.update({screen:screen(),comparison:{budget_revision:1,budget_won:'500000',items:[]}});
+  for(const value of ['0','601','1.5']){workspace.termMaxMonths(value);await workspace.findTerms('source');}
+  assert.equal(calls,0);assert.equal(workspace.state.pending,null);assert.equal(workspace.locked(),false);
+});
+
+test('Strict Mode reconnect joins an existing term search instead of racing its capacity limit',async()=>{
+  const s=storage();const ticket={kind:'termSearch',session:screen().session_id,id:'source',body:{max_months:60,expected_budget_revision:1}};
+  const comparison={items:[{id:'source'}],budget_revision:1,budget_won:'500000'};
+  writeSession({...emptySession(),screen:screen(),pending:ticket,comparisonOpen:true},s);
+  let finish,calls=0;const workspace=new CanvasWorkspace({storage:s,api:{searchLoanTerms:async()=>{calls++;return new Promise(resolve=>finish=resolve);},loadCurrentScreen:async()=>screen(),loadLoanScenarios:async()=>comparison}});
+  const first=workspace.recover();await Promise.resolve();workspace.disconnect();const second=workspace.recover();await Promise.resolve();
+  finish({status:'found',candidates:[],source_scenario_id:'source',budget_revision:1});
+  await Promise.all([first,second]);assert.equal(calls,1);assert.equal(workspace.state.pending,null);assert.equal(workspace.state.termSearch.status,'found');
+});
+
+test('capacity backoff retries only the same read-only term request and is bounded',async()=>{
+  const {searchLoanTerms}=await import('../src/lib/canvasClient.js');const original=globalThis.fetch;const bodies=[];let calls=0;
+  try{
+    globalThis.fetch=async(url,options)=>{assert.ok(url.endsWith('/terms'));bodies.push(options.body);calls++;return calls===1?{ok:false,status:429,json:async()=>({})}:{ok:true,json:async()=>({status:'found'})};};
+    assert.equal((await searchLoanTerms('session','source',{max_months:60,expected_budget_revision:1})).status,'found');
+    assert.equal(calls,2);assert.equal(bodies[0],bodies[1]);
+    calls=0;globalThis.fetch=async()=>{calls++;return {ok:false,status:429,json:async()=>({})};};
+    await assert.rejects(searchLoanTerms('session','source',{max_months:60,expected_budget_revision:1}),error=>error.status===429);
+    assert.equal(calls,2);
+  }finally{globalThis.fetch=original;}
+});

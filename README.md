@@ -24,6 +24,16 @@ npm run dev
 
 브라우저에는 API 키를 넣지 않습니다. 생성은 로컬 모델을 사용하고 실제 계좌 거래는 수행하지 않습니다.
 
+## 예산에 맞는 상환기간 찾기
+
+저장한 월 예산에서 같은 원금·금리로 가능한 상환기간을 계산합니다. 기본 1~60개월, 최대 600개월의 전체 상환표를 검사해 가장 짧은 기간·총이자 최소·최대 납입액 최소를 보여줍니다. 결과는 자동 적용하지 않으며 비교에 저장한 뒤 기존 미리보기로 반영합니다. 예산이나 원래 조건이 바뀌면 오래된 결과를 저장하지 않습니다.
+
+[기능 설계와 한계](https://github.com/sunwoo030616/KKBB-ddook-ddak-back-dev/blob/main/docs/예산에_맞는_상환기간_찾기.md) · [브라우저 결과](reports/loan-terms/browser.json) · [결과 화면](reports/loan-terms/mobile-found.png) · [가능한 기간 없음](reports/loan-terms/mobile-no-match.png)
+
+현재 프론트 검사 **36개**, 전체 ESLint와 production build를 통과했습니다. 새 백엔드 fixture와 기존 검증 프록시에서 `node scripts/verify-loan-terms.mjs`로 계산·저장 응답 유실 후 새로고침, 결과 재사용, 조건 적용과 예산 변경 충돌을 재현합니다.
+
+[전체 개발 현황·변경 기록·다음 작업](https://github.com/sunwoo030616/KKBB-ddook-ddak-back-dev/blob/main/docs/개발현황과_다음작업.md)은 백엔드 문서를 기준으로 함께 갱신합니다. 고정 모델 브라우저 검사는 의미 정확도·실제 금융상품 조건 평가와 구분합니다.
+
 ## 선택한 대출 조건 적용과 월 상환 예산
 
 비교 카드에서 ‘이 조건으로 적용 미리보기’를 누르면 현재 계산과 선택한 조건의 월 납입액·총이자 차이를 확인합니다. 확인 후 적용하면 대출 폼과 상환표가 함께 바뀌고, 취소하면 작성 중인 입력을 유지합니다. 기존 화면 이력으로 돌아갈 수 있습니다.
@@ -32,7 +42,7 @@ npm run dev
 
 [설계·입력 계약·검증 범위](https://github.com/sunwoo030616/KKBB-ddook-ddak-back-dev/blob/main/docs/대출조건_선택적용과_월예산.md) · [브라우저 결과](reports/loan-selection-budget/browser.json) · [적용 전후 비교 화면](reports/loan-selection-budget/mobile-apply-review.png) · [월 예산 비교 화면](reports/loan-selection-budget/mobile-budget-comparison.png)
 
-검증: 클라이언트 검사 **30개**, 전체 ESLint와 production build 통과. 새 백엔드 fixture와 기존 Vite 검증 프록시를 실행한 뒤 `node scripts/verify-loan-selection-budget.mjs`로 재현합니다. 예산 변경 충돌, 적용·취소·이력 복구, 저장·적용 응답 유실 후 새로고침을 포함하며 초기 화면 계획 모델만 고정한 기능 검사입니다.
+검증: 클라이언트 검사 **36개**, 전체 ESLint와 production build 통과. 새 백엔드 fixture와 기존 Vite 검증 프록시를 실행한 뒤 `node scripts/verify-loan-selection-budget.mjs`로 재현합니다. 예산 변경 충돌, 적용·취소·이력 복구, 저장·적용 응답 유실 후 새로고침을 포함하며 초기 화면 계획 모델만 고정한 기능 검사입니다.
 
 ## 새로고침과 작업 이어받기
 
@@ -46,7 +56,7 @@ npm run dev
 
 [설계·API·검증 범위](https://github.com/sunwoo030616/KKBB-ddook-ddak-back-dev/blob/main/docs/작업_이어받기와_대출조건_비교.md) · [작업 복구 브라우저 결과](reports/workspace-recovery/browser.json) · [대출 비교 결과](reports/loan-comparison/browser.json) · [비교 화면](reports/loan-comparison/mobile-comparison.png)
 
-클라이언트 검사 **30개**, 전체 ESLint와 production build를 통과했습니다. 두 브라우저 검사는 각각 새 fixture 프로세스에서 실행합니다. Chrome·Playwright가 필요하며 외부 설치 모듈은 `PLAYWRIGHT_MODULE` 경로로 지정할 수 있습니다.
+클라이언트 검사 **36개**, 전체 ESLint와 production build를 통과했습니다. 두 브라우저 검사는 각각 새 fixture 프로세스에서 실행합니다. Chrome·Playwright가 필요하며 외부 설치 모듈은 `PLAYWRIGHT_MODULE` 경로로 지정할 수 있습니다.
 
 ```bash
 # 백엔드 저장소: 생성 도중 새로고침을 재현하는 지연 포함 fixture
@@ -66,11 +76,11 @@ node scripts/verify-loan-comparison.mjs
 
 [복구 설계·한계](https://github.com/sunwoo030616/KKBB-ddook-ddak-back-dev/blob/main/docs/화면_이력과_복구.md) · [브라우저 검증 결과](reports/screen-history/browser.json) · [저장된 화면 UI](reports/screen-history/mobile-history.png)
 
-클라이언트 검사 30개, ESLint와 production build를 통과했습니다. 새 백엔드 fixture와 위의 Vite 검증 프록시를 실행한 상태에서 `node scripts/verify-screen-history.mjs`로 계산 저장·이력·복구·취소·이어서 수정하기를 재현할 수 있습니다. 모델만 고정한 기능 검사이며 실제 모델 정확도 시험이 아닙니다.
+클라이언트 검사 36개, ESLint와 production build를 통과했습니다. 새 백엔드 fixture와 위의 Vite 검증 프록시를 실행한 상태에서 `node scripts/verify-screen-history.mjs`로 계산 저장·이력·복구·취소·이어서 수정하기를 재현할 수 있습니다. 모델만 고정한 기능 검사이며 실제 모델 정확도 시험이 아닙니다.
 
 ## 화면 변경 브라우저 검사
 
-`npm test` 13개, `npm run lint`, `npm run build`를 통과했습니다. [브라우저 검사 결과](reports/screen-review/browser.json)와 [모바일 변경 확인 화면](reports/screen-review/mobile-review.png)을 함께 저장했습니다.
+`npm test` 36개, `npm run lint`, `npm run build`를 통과했습니다. [브라우저 검사 결과](reports/screen-review/browser.json)와 [모바일 변경 확인 화면](reports/screen-review/mobile-review.png)을 함께 저장했습니다.
 
 브라우저 시험은 고정 모델 응답과 실제 Python 컴파일러·SQLite·API를 연결합니다. 실제 모델의 정확도를 재는 시험이 아닙니다. 새 fixture 프로세스에서 실행합니다.
 

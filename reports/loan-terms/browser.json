@@ -1,0 +1,30 @@
+{
+  "scope": "real React/Python/SQLite/Decimal calculations; only initial screen model is scripted",
+  "checks": [
+    "search original principal and rate using stored budget",
+    "lost search acknowledgement resumes without model generation",
+    "read-only results do not change screen or saved scenarios",
+    "cached results restored without recomputing",
+    "lost found-term save acknowledgement does not duplicate scenarios",
+    "found term enters existing apply preview and synchronizes repayment screen",
+    "empty feasible range shows nearest overrun without fake candidates",
+    "maximum 600 terms checked",
+    "concurrent budget change rejects stale found-term save and refreshes budget",
+    "no additional model calls or browser errors"
+  ],
+  "shortest": {
+    "kind": "amortized_loan",
+    "principal_won": "10000000",
+    "annual_rate_percent": "4.5",
+    "months": 21
+  },
+  "checked_terms": 60,
+  "feasible_terms": 40,
+  "search_http_requests": 4,
+  "state": {
+    "model_calls": 1,
+    "revisions": [
+      3
+    ]
+  }
+}
